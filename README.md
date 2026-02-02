@@ -2,7 +2,7 @@
 
 A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors taunt cooldowns across your raid, with real-time sync between tanks.
 
-![Version](https://img.shields.io/badge/version-1.5.1-blue)
+![Version](https://img.shields.io/badge/version-1.5.2-blue)
 ![Client](https://img.shields.io/badge/client-Turtle%20WoW%201.12-green)
 
 ## Features
@@ -42,8 +42,9 @@ A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors 
 *Shaman and Paladin taunts are Turtle WoW custom abilities*
 
 ### User Interface
-- **Drag-and-drop configuration** - easily add/remove tanks from tracking
-- **Reorderable tank list** - arrange tanks in your preferred priority order
+- **Two-panel configuration** - left panel shows available tanks, right panel shows your tank order
+- **Click to add/remove** - use `+` and `-` buttons to manage your tank list
+- **Arrow reordering** - use up/down arrows to change tank priority order
 - **Multiple themes** - Default WoW, Dark, and ElvUI styles
 - **Scalable UI** - resize from 50% to 200%
 - **Lock/unlock tracker** - lock to make click-through, unlock to reposition
@@ -70,8 +71,8 @@ Interface/AddOns/IchaTaunt/
 
 1. **Join a raid or party** with tanks
 2. **Open configuration**: Type `/it`
-3. **Add taunters**: Click the `+` button next to each tank you want to track
-4. **Arrange order**: Use the up/down arrows to reorder tanks
+3. **Add taunters**: Click the `+` button next to each tank you want to track (left panel)
+4. **Arrange order**: Use the up/down arrow buttons to reorder tanks (right panel)
 5. **Close** the window - tracker appears automatically
 
 ## Slash Commands
@@ -212,6 +213,10 @@ Settings saved in `WTF/Account/.../SavedVariables/IchaTaunt.lua`:
 
 ## Version History
 
+### v1.5.2
+- Options menu now follows selected theme
+- Fixed theme colors for all UI elements
+
 ### v1.5.1
 - Fixed cooldown sync broadcasting
 - Smart time display (minutes:seconds for long CDs)
@@ -228,7 +233,7 @@ Settings saved in `WTF/Account/.../SavedVariables/IchaTaunt.lua`:
 
 ### v1.4.x
 - PallyPower-style sync system
-- Drag-and-drop tank reordering
+- Button-based tank reordering (up/down arrows)
 - Lock/unlock tracker position
 - Challenging Roar/Shout detection via "afflicted by"
 

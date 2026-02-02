@@ -26,7 +26,7 @@ end
 
 -- SavedVariables
 IchaTauntDB = IchaTauntDB or {
-    showInRaidOnly = true,
+    showInRaidOnly = false,  -- false = show in party or raid; true = only show in raid
     mainTank = nil,
     taunterOrder = {},
     taunters = {},
@@ -232,7 +232,7 @@ function IchaTaunt:Initialize()
     -- Ensure IchaTauntDB is properly initialized
     if not IchaTauntDB then
         IchaTauntDB = {
-            showInRaidOnly = true,
+            showInRaidOnly = false,  -- false = show in party or raid; true = only show in raid
             mainTank = nil,
             taunterOrder = {},
             taunters = {},
@@ -409,6 +409,14 @@ function IchaTaunt:Initialize()
 end
 
 function IchaTaunt:RefreshRoster()
+    -- If "only show in raid" is on and we're in party (not raid), hide tracker
+    if IchaTauntDB.showInRaidOnly and (not GetNumRaidMembers or GetNumRaidMembers() == 0) then
+        if self.frame then
+            self.frame:Hide()
+        end
+        return
+    end
+
     -- Check if we need to rebuild (only if taunter list actually changed)
     local currentTaunters = {}
     local hasTaunters = false
@@ -1707,9 +1715,8 @@ function IchaTaunt:BroadcastFullConfig()
     self:BroadcastTaunters()
 end
 
--- Auto-broadcast when changes are made (if autoSync is enabled)
+-- Auto-broadcast when changes are made (sync is always on)
 function IchaTaunt:AutoBroadcast()
-    if not IchaTauntDB.autoSync then return end
     local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
     if inGroup and self:CanControl() then
         self:BroadcastFullConfig()
@@ -2154,11 +2161,29 @@ local function ShowTaunterPopup()
         subtitle:SetText("Add taunters to track their cooldowns")
         f.subtitle = subtitle
 
-        -- Convert to Raid button (top right corner)
+        -- Close X (top right corner)
+        local closeX = CreateFrame("Button", nil, f)
+        closeX:SetWidth(20)
+        closeX:SetHeight(20)
+        closeX:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
+        closeX:SetScript("OnClick", function()
+            f:Hide()
+            if IchaTaunt.optionsMenu and IchaTaunt.optionsMenu:IsVisible() then
+                IchaTaunt.optionsMenu:Hide()
+            end
+        end)
+        local closeXText = closeX:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        closeXText:SetPoint("CENTER", closeX, "CENTER", 0, 0)
+        closeXText:SetText("X")
+        closeXText:SetTextColor(1, 1, 1)
+        closeX:SetScript("OnEnter", function() closeXText:SetTextColor(1, 0.82, 0) end)
+        closeX:SetScript("OnLeave", function() closeXText:SetTextColor(1, 1, 1) end)
+
+        -- Convert to Raid button (below close X)
         local convertBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
         convertBtn:SetWidth(110)
         convertBtn:SetHeight(20)
-        convertBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -15, -12)
+        convertBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -15, -32)
         convertBtn:SetText("Convert to Raid")
         convertBtn:SetScript("OnClick", function()
             if GetNumRaidMembers() > 0 then
@@ -2403,7 +2428,7 @@ local function ShowTaunterPopup()
                             IchaTauntDB = {
                                 taunterOrder = {},
                                 taunters = {},
-                                showInRaidOnly = true,
+                                showInRaidOnly = false,  -- false = show in party or raid; true = only show in raid
                                 position = { x = 0, y = 0 }
                             }
                         end
@@ -2586,7 +2611,7 @@ local function ShowTaunterPopup()
                         IchaTauntDB = {
                             taunterOrder = {},
                             taunters = {},
-                            showInRaidOnly = true,
+                            showInRaidOnly = false,  -- false = show in party or raid; true = only show in raid
                             position = { x = 0, y = 0 }
                         }
                     end
@@ -2664,76 +2689,11 @@ local function ShowTaunterPopup()
         buttonFrame:SetHeight(30)
         buttonFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 12)
 
-        -- Auto-sync checkbox (left side)
-        local autoSyncCheck = CreateFrame("CheckButton", "IchaTauntAutoSyncCheck", buttonFrame, "UICheckButtonTemplate")
-        autoSyncCheck:SetWidth(20)
-        autoSyncCheck:SetHeight(20)
-        autoSyncCheck:SetPoint("LEFT", buttonFrame, "LEFT", 20, 0)
-        autoSyncCheck:SetChecked(IchaTauntDB.autoSync)
-        autoSyncCheck:SetScript("OnClick", function()
-            IchaTauntDB.autoSync = this:GetChecked() == 1
-            if IchaTauntDB.autoSync then
-                print("IchaTaunt: Auto-sync enabled")
-            else
-                print("IchaTaunt: Auto-sync disabled")
-            end
-        end)
-
-        local autoSyncLabel = buttonFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        autoSyncLabel:SetPoint("LEFT", autoSyncCheck, "RIGHT", 2, 0)
-        autoSyncLabel:SetText("Auto-sync")
-
-        -- Sync button (force refresh)
-        local syncBtn = CreateFrame("Button", nil, buttonFrame, "UIPanelButtonTemplate")
-        syncBtn:SetWidth(60)
-        syncBtn:SetHeight(22)
-        syncBtn:SetPoint("LEFT", autoSyncLabel, "RIGHT", 15, 0)
-        syncBtn:SetText("Sync")
-        syncBtn:SetScript("OnClick", function()
-            local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
-            if not inGroup then
-                print("IchaTaunt: Not in a group, nothing to sync")
-                return
-            end
-
-            if IchaTaunt:CanControl() then
-                -- Leader: Force broadcast full config (order + taunters)
-                IchaTaunt:BroadcastOrder()
-                IchaTaunt:BroadcastTaunters()
-                print("IchaTaunt: Force broadcasting configuration to raid")
-                -- Also refresh our own display
-                IchaTaunt:RefreshRoster()
-                if RefreshPanels then
-                    RefreshPanels()
-                end
-            else
-                -- Member: Request sync from leader and refresh display
-                IchaTaunt:RequestSync()
-                print("IchaTaunt: Requesting sync from leader")
-                -- Force refresh our tracker in case data is stale
-                IchaTaunt:RefreshRoster()
-            end
-        end)
-        syncBtn:SetScript("OnEnter", function()
-            GameTooltip:SetOwner(this, "ANCHOR_TOP")
-            if IchaTaunt:CanControl() then
-                GameTooltip:SetText("Force broadcast configuration to raid")
-                GameTooltip:AddLine("Sends current tank order to all raid members", 1, 1, 1)
-            else
-                GameTooltip:SetText("Request configuration from raid leader")
-                GameTooltip:AddLine("Requests the tank order from the raid leader", 1, 1, 1)
-            end
-            GameTooltip:Show()
-        end)
-        syncBtn:SetScript("OnLeave", function()
-            GameTooltip:Hide()
-        end)
-
-        -- Options button (opens settings menu)
+        -- Options button (opens theme & scale settings)
         local optionsBtn = CreateFrame("Button", nil, buttonFrame, "UIPanelButtonTemplate")
         optionsBtn:SetWidth(70)
         optionsBtn:SetHeight(22)
-        optionsBtn:SetPoint("LEFT", syncBtn, "RIGHT", 10, 0)
+        optionsBtn:SetPoint("LEFT", buttonFrame, "LEFT", 20, 0)
         optionsBtn:SetText("Options")
         optionsBtn:SetScript("OnClick", function()
             IchaTaunt:ShowOptionsMenu()
@@ -2745,20 +2705,6 @@ local function ShowTaunterPopup()
         end)
         optionsBtn:SetScript("OnLeave", function()
             GameTooltip:Hide()
-        end)
-
-        -- Close button (right)
-        local close = CreateFrame("Button", nil, buttonFrame, "UIPanelButtonTemplate")
-        close:SetWidth(60)
-        close:SetHeight(22)
-        close:SetPoint("RIGHT", buttonFrame, "RIGHT", -20, 0)
-        close:SetText("Close")
-        close:SetScript("OnClick", function()
-            f:Hide()
-            -- Also close options menu if open
-            if IchaTaunt.optionsMenu and IchaTaunt.optionsMenu:IsVisible() then
-                IchaTaunt.optionsMenu:Hide()
-            end
         end)
 
         f:Hide()
@@ -2807,7 +2753,7 @@ function IchaTaunt:CreateOptionsMenu()
 
     local f = CreateFrame("Frame", "IchaTauntOptionsMenu", UIParent)
     f:SetWidth(220)
-    f:SetHeight(370)  -- Increased height to fit DTPS toggle
+    f:SetHeight(400)  -- Height for theme, scale, position, show-in-raid, DTPS
     f:SetFrameStrata("DIALOG")
     f:SetFrameLevel(10)
 
@@ -2826,12 +2772,27 @@ function IchaTaunt:CreateOptionsMenu()
     title:SetPoint("TOP", f, "TOP", 0, -12)
     title:SetText("Options")
     title:SetTextColor(unpack(c.titleColor))
+    f.title = title
+
+    -- Close X (top right)
+    local closeX = CreateFrame("Button", nil, f)
+    closeX:SetWidth(20)
+    closeX:SetHeight(20)
+    closeX:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
+    closeX:SetScript("OnClick", function() f:Hide() end)
+    local closeXText = closeX:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    closeXText:SetPoint("CENTER", closeX, "CENTER", 0, 0)
+    closeXText:SetText("X")
+    closeXText:SetTextColor(1, 1, 1)
+    closeX:SetScript("OnEnter", function() closeXText:SetTextColor(1, 0.82, 0) end)
+    closeX:SetScript("OnLeave", function() closeXText:SetTextColor(1, 1, 1) end)
 
     -- ===== THEME SECTION =====
     local themeSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     themeSection:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -40)
     themeSection:SetText("Theme")
-    themeSection:SetTextColor(1, 0.82, 0)
+    themeSection:SetTextColor(unpack(c.titleColor))
+    f.themeSection = themeSection
 
     -- Theme buttons container
     local themeOrder = {"default", "dark", "elvui"}
@@ -2869,7 +2830,8 @@ function IchaTaunt:CreateOptionsMenu()
     local scaleSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     scaleSection:SetPoint("TOPLEFT", f, "TOPLEFT", 15, yOffset - 10)
     scaleSection:SetText("Tracker Scale")
-    scaleSection:SetTextColor(1, 0.82, 0)
+    scaleSection:SetTextColor(unpack(c.titleColor))
+    f.scaleSection = scaleSection
 
     -- Scale value display
     local scaleValue = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -2943,7 +2905,8 @@ function IchaTaunt:CreateOptionsMenu()
     local resetSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     resetSection:SetPoint("TOPLEFT", f, "TOPLEFT", 15, yOffset - 10)
     resetSection:SetText("Tracker Position")
-    resetSection:SetTextColor(1, 0.82, 0)
+    resetSection:SetTextColor(unpack(c.titleColor))
+    f.resetSection = resetSection
 
     yOffset = yOffset - 30
     local resetBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -3003,12 +2966,29 @@ function IchaTaunt:CreateOptionsMenu()
     f.lockUnlockBtn = lockUnlockBtn
     lockUnlockBtn:SetText(IchaTaunt.locked and "Unlock Position" or "Lock Position")
 
+    -- Only show in raid (hide tracker when in party)
+    yOffset = yOffset - 28
+    local showInRaidCheck = CreateFrame("CheckButton", "IchaTauntShowInRaidCheck", f, "UICheckButtonTemplate")
+    showInRaidCheck:SetWidth(20)
+    showInRaidCheck:SetHeight(20)
+    showInRaidCheck:SetPoint("TOPLEFT", f, "TOPLEFT", 15, yOffset)
+    showInRaidCheck:SetChecked(IchaTauntDB.showInRaidOnly)
+    showInRaidCheck:SetScript("OnClick", function()
+        IchaTauntDB.showInRaidOnly = (this:GetChecked() == 1)
+        IchaTaunt:RefreshRoster()
+    end)
+    f.showInRaidCheck = showInRaidCheck
+    local showInRaidLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    showInRaidLabel:SetPoint("LEFT", showInRaidCheck, "RIGHT", 5, 0)
+    showInRaidLabel:SetText("Only show in raid")
+
     -- ===== DTPS SECTION =====
     yOffset = yOffset - 35
     local dtpsSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     dtpsSection:SetPoint("TOPLEFT", f, "TOPLEFT", 15, yOffset)
     dtpsSection:SetText("DTPS Display")
-    dtpsSection:SetTextColor(1, 0.82, 0)
+    dtpsSection:SetTextColor(unpack(c.titleColor))
+    f.dtpsSection = dtpsSection
 
     -- DTPS checkbox
     yOffset = yOffset - 22
@@ -3036,16 +3016,6 @@ function IchaTaunt:CreateOptionsMenu()
     dtpsLabel:SetPoint("LEFT", dtpsCheck, "RIGHT", 5, 0)
     dtpsLabel:SetText("Show damage taken per second")
 
-    -- ===== CLOSE BUTTON =====
-    local closeBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    closeBtn:SetWidth(80)
-    closeBtn:SetHeight(22)
-    closeBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 12)
-    closeBtn:SetText("Close")
-    closeBtn:SetScript("OnClick", function()
-        f:Hide()
-    end)
-
     f:Hide()
     self.optionsMenu = f
 end
@@ -3064,6 +3034,31 @@ function IchaTaunt:RefreshOptionsMenu()
     if not self.optionsMenu then return end
 
     local f = self.optionsMenu
+    local theme = self:GetTheme()
+    local c = theme.config
+
+    -- Apply current theme backdrop
+    f:SetBackdrop(c.backdrop)
+    f:SetBackdropColor(unpack(c.bgColor))
+
+    -- Update title color
+    if f.title then
+        f.title:SetTextColor(unpack(c.titleColor))
+    end
+
+    -- Update section header colors
+    if f.themeSection then
+        f.themeSection:SetTextColor(unpack(c.titleColor))
+    end
+    if f.scaleSection then
+        f.scaleSection:SetTextColor(unpack(c.titleColor))
+    end
+    if f.resetSection then
+        f.resetSection:SetTextColor(unpack(c.titleColor))
+    end
+    if f.dtpsSection then
+        f.dtpsSection:SetTextColor(unpack(c.titleColor))
+    end
 
     -- Update scale value display
     if f.scaleValue then
@@ -3085,6 +3080,11 @@ function IchaTaunt:RefreshOptionsMenu()
                 btn:GetFontString():SetTextColor(1, 1, 1)
             end
         end
+    end
+
+    -- Update "Only show in raid" checkbox
+    if f.showInRaidCheck then
+        f.showInRaidCheck:SetChecked(IchaTauntDB.showInRaidOnly)
     end
 
     -- Update DTPS checkbox
@@ -3225,17 +3225,6 @@ SlashCmdList["ICHATAUNT"] = function(msg)
             count = count + 1
         end
         print("IchaTaunt: Testing ALL " .. count .. " spells for " .. playerName)
-    elseif msg == "debug" then
-        IchaTauntDB.debugMode = not IchaTauntDB.debugMode
-        print("IchaTaunt: Debug mode " .. (IchaTauntDB.debugMode and "enabled" or "disabled"))
-    elseif msg == "debugall" then
-        IchaTauntDB.debugAllEvents = not IchaTauntDB.debugAllEvents
-        if IchaTauntDB.debugAllEvents then
-            IchaTaunt:RegisterAllCombatEvents()
-        else
-            IchaTaunt:UnregisterAllCombatEvents()
-        end
-        print("IchaTaunt: Debug ALL events " .. (IchaTauntDB.debugAllEvents and "enabled" or "disabled"))
     elseif msg == "reset" or msg == "center" then
         -- Reset position to screen center
         IchaTauntDB.position.x = 0
@@ -3246,18 +3235,6 @@ SlashCmdList["ICHATAUNT"] = function(msg)
             print("IchaTaunt: Position reset to screen center")
         else
             print("IchaTaunt: Position will be reset when tracker is next shown")
-        end
-    elseif msg == "sync" then
-        -- Manual sync command
-        local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
-        if not inGroup then
-            print("IchaTaunt: Not in a group, nothing to sync")
-        elseif IchaTaunt:CanControl() then
-            IchaTaunt:BroadcastFullConfig()
-            print("IchaTaunt: Broadcasting configuration to raid")
-        else
-            IchaTaunt:RequestSync()
-            print("IchaTaunt: Requesting sync from leader")
         end
     elseif strfind(msg, "^theme") then
         -- Theme command
@@ -3295,14 +3272,6 @@ SlashCmdList["ICHATAUNT"] = function(msg)
             print("  Example: /it scale 0.8 or /it scale 80")
             print("  Range: 50% - 200%")
         end
-    elseif msg == "autosync" then
-        -- Toggle auto-sync
-        IchaTauntDB.autoSync = not IchaTauntDB.autoSync
-        if IchaTauntDB.autoSync then
-            print("IchaTaunt: Auto-sync enabled - changes will be broadcast automatically")
-        else
-            print("IchaTaunt: Auto-sync disabled - use /it sync to manually broadcast")
-        end
     elseif msg == "options" or msg == "settings" then
         -- Open options menu
         IchaTaunt:ShowOptionsMenu()
@@ -3315,14 +3284,6 @@ SlashCmdList["ICHATAUNT"] = function(msg)
     elseif msg == "togglelock" then
         -- Toggle lock state
         IchaTaunt:ToggleLock()
-    elseif strfind(msg, "^dtps") or strfind(msg, "^dps") then
-        -- DTPS module commands (support both /it dtps and /it dps for backwards compatibility)
-        local _, _, dtpsArgs = strfind(msg, "^(?:dtps|dps)%s*(.*)$")
-        if IchaTaunt_DPS and IchaTaunt_DPS.HandleCommand then
-            IchaTaunt_DPS:HandleCommand(dtpsArgs or "")
-        else
-            print("IchaTaunt: DTPS module not available")
-        end
     elseif msg == "help" then
         print("IchaTaunt Commands:")
         print("/it - Open config window")
@@ -3330,18 +3291,14 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         print("/it hide - Hide tracker bar")
         print("/it config - Open taunter selection")
         print("/it options - Open theme & scale options")
-        print("/it sync - Sync with raid")
-        print("/it autosync - Toggle auto-sync on/off")
         print("/it theme - List themes")
         print("/it theme <name> - Set theme (default, dark, elvui)")
         print("/it scale - Show current scale")
         print("/it scale <value> - Set scale (0.5-2.0 or 50-200)")
         print("/it reset - Reset tracker position")
-        print("/it lock - Lock tracker (hides background)")
-        print("/it unlock - Unlock tracker (shows background)")
+        print("/it lock - Lock tracker (click-through)")
+        print("/it unlock - Unlock tracker")
         print("/it togglelock - Toggle lock state")
-        print("/it debug - Toggle debug mode")
-        print("/it dtps - DTPS tracking commands (see /it dtps help)")
         print("/it test - Test cooldown on first spell for your class")
         print("/it testresist - Test resist indicator")
         print("/it testtaunt - Test Taunt (Warrior, 10s)")

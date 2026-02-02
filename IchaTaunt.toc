@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: IchaTaunt
 ## Notes: Taunt tracker with cooldown timers and countdown bars
-## Version: 1.5.1
+## Version: 1.5.2
 ## Author: IchaTaunt Team
 ## SavedVariables: IchaTauntDB
 
