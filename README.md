@@ -1,192 +1,251 @@
 # IchaTaunt - Taunt Tracker for Turtle WoW
 
-A modern taunt tracking addon for Turtle WoW (1.12 client) that monitors taunt cooldowns across your raid or party, syncs state between members, and shows live damage taken (DTPS) so tanks can coordinate threat and know when to taunt off each other.
-
----
-
-## Overview
-
-IchaTaunt provides:
-
-- **Per-player taunt cooldown tracking** for all supported taunts (Warrior, Druid, Shaman, Paladin), with resist detection and broadcast so everyone sees who used what and when.
-- **Raid-wide sync** (PallyPower-style): the leader sets taunter list and order; cooldown usage is broadcast so all members see the same timers. If you DC and rejoin, you can receive current cooldown state from the leader so Roar/Shout/Mocking Blow remaining time is correct.
-- **Cooldown persistence** across reload and logoff: remaining time for long cooldowns (e.g. Challenging Roar/Shout) is saved and restored so the tracker doesn’t reset to full duration after a reload.
-- **DTPS (Damage Taken Per Second)** per tank: each tank broadcasts their own DTPS in combat; others see incoming damage rate so they know when to taunt off someone taking heavy damage.
-- **Clean, non-intrusive UI**: tracker is movable and themeable; when locked it is click-through so it doesn’t block camera or clicks. Unlock/lock from the options menu or the X on the tracker.
-
----
+A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors taunt cooldowns across your raid or party, helping coordinate threat management.
 
 ## Features
 
-### Taunt tracking
+### 📊 Real-Time Taunt Tracking
+- **Visual cooldown bars** with countdown timers for all tracked taunters
+- **Per-player tracking** - see exactly when each tank's taunt is ready
+- **Resist detection** - automatic visual indicator when a taunt is resisted
+- **Class-colored names** - easily identify taunters at a glance
 
-- **Visual cooldown bars** with countdown timers (minutes:seconds for long CDs) for every tracked taunter and spell.
-- **Resist detection**: when a taunt is resisted, the tracker shows a clear resist indicator and the resist state is broadcast so the raid sees it.
-- **All taunts broadcast on use**: single-target (Taunt, Growl, Earthshaker Slam, Hand of Reckoning), Mocking Blow, and AOE (Challenging Shout, Challenging Roar). Detection uses cast hooks and a cooldown poller so it works regardless of how the spell is cast (action bar, macro, etc.).
-- **Correct remaining time**: when you or someone else is already on cooldown and you reload/DC, the addon restores or receives the actual remaining duration (e.g. 5:00 left on Roar instead of 10:00).
+### 🎯 Supported Taunt Abilities
 
-### Raid sync (PallyPower-style)
+#### Warrior
+- **Taunt** - 10 second cooldown
+- **Mocking Blow** - 2 minute cooldown
+- **Challenging Shout** - 10 minute cooldown
 
-- **Leader-controlled config**: raid leader (or officer) sets taunter list and order; sync is sent to the raid so everyone has the same tracker setup.
-- **Cooldown broadcast**: when anyone uses a taunt, their client broadcasts it (player, spell, remaining cooldown, resist). Others apply it so everyone’s timers match.
-- **Rejoin after DC**: when you request sync (e.g. after reconnecting), the leader sends config *and* a snapshot of all active cooldowns (remaining seconds). You get correct Roar/Shout/Mocking Blow (and other) timers even though you missed the original cast.
+#### Druid
+- **Growl** - 10 second cooldown
+- **Challenging Roar** - 10 second cooldown
 
-### Cooldown persistence
+#### Shaman (Turtle WoW Custom)
+- **Earthshaker Slam** - 10 second cooldown
 
-- **Survives reload and logoff**: active cooldown end times are stored (using real time where available). On load, the tracker restores saved cooldowns for all players and, for the local player, refreshes from the game’s spell cooldown API so the displayed remaining time is accurate.
+#### Paladin (Turtle WoW Custom)
+- **Hand of Reckoning** - 10 second cooldown
 
-### DTPS (Damage Taken Per Second)
+### 🖱️ Easy Configuration
+- **Drag-and-drop interface** - select taunters from your raid/party
+- **Custom taunt order** - arrange tanks in priority order
+- **Scrollable panels** - handles 40-player raids without UI overflow
+- **Persistent settings** - your configuration saves between sessions
 
-- **Per-tank damage rate**: each tank’s DTPS is computed from the combat log (rolling window, default 3 seconds) and shown on their bar (e.g. `1.2k DTPS`). Color reflects thresholds (green / yellow / red).
-- **Broadcast in combat only**: your DTPS is broadcast to the raid only while you are in combat, so it doesn’t spam when you’re idle.
-- **Low impact**: small, fixed-size data (rolling window + one value per other tank); minimal memory and bandwidth.
-
-### User interface
-
-- **Tracker**
-  - Draggable; position is saved.
-  - **Locked = click-through**: when locked, the frame doesn’t capture mouse input, so there’s no dead area for camera or clicking the world.
-  - **Unlock / Lock**: from the options menu (“Unlock Position” / “Lock Position”) or by clicking the X on the tracker. The menu button label reflects current state (Unlock when locked, Lock when unlocked).
-- **Themes**: Default, Dark, and ElvUI-style; applies to tracker and config windows.
-- **Scale**: adjustable tracker scale (e.g. 50%–200%).
-- **Options menu** (`/it` or via config): theme, scale, Reset Position, Unlock/Lock Position, DTPS toggle, and (in main config) taunter selection and order.
-
-### Supported taunt abilities
-
-| Class   | Spell              | Cooldown |
-|--------|--------------------|----------|
-| Warrior | Taunt              | 10 s     |
-| Warrior | Mocking Blow       | 2 min    |
-| Warrior | Challenging Shout  | 10 min   |
-| Druid   | Growl              | 10 s     |
-| Druid   | Challenging Roar   | 10 min   |
-| Shaman  | Earthshaker Slam   | 10 s     |
-| Paladin | Hand of Reckoning  | 10 s     |
-
-(Turtle WoW custom: Earthshaker Slam, Hand of Reckoning. Add more in `IchaTaunt_Spells.lua`.)
-
----
+### 🎨 User Interface
+- **Movable tracker bar** - position it anywhere on your screen
+- **Lock/unlock mode** - prevent accidental moving during combat
+- **Auto-show in raids** - optional automatic display when in raid groups
+- **Clean, minimal design** - doesn't clutter your screen
 
 ## Installation
 
-1. Download the addon.
-2. Extract to `World of Warcraft\Interface\AddOns\`.
-3. Ensure the folder is named `IchaTaunt`.
-4. Restart WoW or `/reload`.
+1. Download the addon
+2. Extract to `World of Warcraft\Interface\AddOns\`
+3. Ensure the folder is named `IchaTaunt`
+4. Restart WoW or reload UI (`/reload`)
 
----
+## Quick Start
 
-## Quick start
+### Basic Setup
 
-1. **Join a raid or party** with tanks.
-2. **Open config**: `/it` or `/it config`.
-3. **Set taunters**: in the left panel, click **+** next to each tank to track; order in the right panel is the display order. (Leader’s list/order syncs to the raid.)
-4. **Tracker**: appears when you have taunters and (optionally) are in a raid. Each bar shows name, spell icons, cooldown timers, resist, and DTPS when enabled.
-5. **Move / lock**: drag to move; use **Lock Position** in options or the **X** on the tracker to lock (click-through). Use **Unlock Position** in options to unlock and move again.
+1. **Join a raid or party** with tanks
+2. **Open configuration**: Type `/it` or `/it config`
+3. **Select taunters**: 
+   - Left panel shows all raid/party members who can taunt
+   - Click the **+** button next to each tank you want to track
+4. **Arrange order** (optional):
+   - Right panel shows your taunt order
+   - Use **-** button to remove taunters
+5. **Close** the configuration window
 
----
+### Using the Tracker
 
-## Slash commands
+The tracker bar will automatically appear when:
+- You're in a raid (if "Show in Raid Only" is enabled)
+- You have configured taunters who are in your group
 
-| Command | Description |
-|--------|-------------|
-| `/it` | Open config window |
-| `/it config` | Open taunter selection |
-| `/it help` | List all commands |
-| `/it show` / `hide` / `toggle` | Show/hide tracker |
-| `/it reset` or `center` | Reset tracker position to center |
-| `/it lock` / `unlock` / `togglelock` | Lock/unlock tracker |
-| `/it sync` | Request sync from leader (or send config if you’re leader) |
-| `/it theme <name>` | Set theme (default, dark, elvui) |
-| `/it scale <value>` | Set scale (0.5–2.0 or 50–200) |
-| `/it dtps` | DTPS subcommands; `/it dtps help` for list |
-| `/it debug` | Toggle debug mode (taunt/sync messages) |
-| `/it test` | Test cooldown (first spell for your class, broadcasts in group) |
-| `/it testtaunt` / `testgrowl` / `testroar` / `testshout` / `testmocking` / `testearthshaker` / `testhand` | Test specific taunt (broadcasts in group) |
-| `/it testall` | Test all spell cooldowns (broadcasts each in group) |
+Each taunter gets a bar showing:
+- **Player name** (class-colored)
+- **Cooldown timer** (when taunt is on cooldown)
+- **READY** indicator (when taunt is available)
+- **RESISTED** warning (bright yellow, when taunt is resisted)
 
----
+## Slash Commands
 
-## Configuration
+### Main Commands
+- `/it` - Open configuration window
+- `/it config` - Open taunter selection panel
+- `/it help` - Display all available commands
 
-- **Main config** (`/it` or `/it config`): taunter list and order, show-in-raid-only, lock state. Leader’s choices sync to the raid.
-- **Options menu** (Theme & scale): theme, scale, **Reset Position**, **Unlock Position** / **Lock Position** (toggle), DTPS on/off. Unlock/lock here or via the X on the tracker.
+### Tracker Control
+- `/it bar show` - Show the tracker bar
+- `/it bar hide` - Hide the tracker bar
+- `/it bar toggle` - Toggle tracker visibility
+- `/it reset` or `/it center` - Reset tracker position to screen center
 
-### Lock / unlock flow
+### Debug & Testing
+- `/it debug` - Toggle debug mode (shows taunt detection messages)
+- `/it debugall` - Toggle super debug mode (shows ALL combat events - very verbose)
+- `/it test` - Test cooldown on first spell for your class (broadcasts in group)
+- `/it testresist` - Test resist indicator on yourself
+- `/it testtaunt` - Test Taunt (Warrior, 10s)
+- `/it testgrowl` - Test Growl (Druid, 10s)
+- `/it testroar` - Test Challenging Roar (Druid, 10 min)
+- `/it testshout` - Test Challenging Shout (Warrior, 10 min)
+- `/it testmocking` - Test Mocking Blow (Warrior, 2 min)
+- `/it testearthshaker` or `/it testslam` - Test Earthshaker Slam (Shaman, 10s)
+- `/it testhand` or `/it testreckoning` - Test Hand of Reckoning (Paladin, 10s)
+- `/it testall` - Test ALL spell cooldowns (broadcasts each when in group)
 
-- When the tracker is **locked**, it is click-through (no dead area). The X on the tracker is not clickable in this state.
-- Use the options menu: **Unlock Position** to unlock, move the tracker, then **Lock Position** (or click the X on the tracker) to lock again.
+## Configuration Options
 
----
+Access the config panel with `/it` to adjust:
+
+### Show in Raid Only
+When enabled, the tracker only appears in raid groups. Disable to show in party/solo.
+
+### Taunter Selection
+- **Left Panel (Raid/Party)**: Shows all available taunters
+  - Only displays classes with taunt abilities
+  - Scroll with mouse wheel if you have 40 players
+  - Click **+** to add to tracking
+  
+- **Right Panel (Taunt Order)**: Your active taunters
+  - Shows in the order they'll appear on the tracker
+  - Click **-** to remove from tracking
+  - Scroll with mouse wheel for many taunters
 
 ## Customization
 
-- **Themes**: `/it theme default|dark|elvui` or via options. Definitions in `IchaTaunt_Themes.lua`.
-- **Scale**: `/it scale 0.8` or options.
-- **Custom taunts**: edit `IchaTaunt_Spells.lua` (spell ID, name, cooldown, icon, classes). Use `/dump GetSpellInfo("Spell Name")` for IDs.
+### Moving the Tracker
+1. The tracker is unlocked by default
+2. Click and drag the title bar to move it
+3. Position saves automatically
+4. Use `/it reset` if you lose it off-screen
 
----
+### Adding Custom Taunt Spells
 
-## Technical notes
+Edit `IchaTaunt_Spells.lua` to add new Turtle WoW custom taunts:
 
-- **Sync**: Addon messages (prefix `ICHAT`) on PARTY/RAID. Messages include ORDER, TAUNTERS, CD (player, spellID, remaining, resist), CD_SNAPSHOT (for rejoin), DTPS, REQ (request config + CD snapshot). Leader responds to REQ with config and CD snapshots.
-- **Cooldown persistence**: End times are stored in `IchaTauntDB.cooldownEndTimes` (by normalized name and spell ID). On load, remaining time is restored from DB; for the local player, remaining time is also refreshed from `GetSpellCooldown` when available.
-- **DTPS**: Combat log events feed a rolling window per player; DTPS is broadcast only in combat. Other tanks’ values are stored from addon messages and shown on their bars.
+```lua
+[SPELL_ID] = {
+    name = "Spell Name",
+    cooldown = 10,  -- in seconds
+    icon = "Interface\\Icons\\IconName",
+    classes = { "WARRIOR", "PALADIN" },  -- can be multiple
+    description = "What the spell does"
+},
+```
 
----
+**Finding Spell IDs**: Use `/dump GetSpellInfo("Spell Name")` in-game
+
+## Technical Details
+
+### How It Works
+- Monitors combat log events (`CHAT_MSG_SPELL_*` events)
+- Parses spell names and caster information
+- Matches against known taunt spells in configuration
+- Tracks individual cooldowns per player per spell
+- Updates UI in real-time with countdown timers
+
+### Performance
+- Lightweight - minimal CPU usage
+- Only processes combat messages for tracked players
+- Efficient cooldown calculations
+- No continuous polling or timers
+
+### Data Storage
+Settings are saved in `SavedVariables\IchaTauntDB.lua`:
+- Taunter list and order
+- Tracker position
+- Display preferences
+- Debug settings
 
 ## Troubleshooting
 
-- **Tracker doesn’t show**: Ensure taunters are added and in group; check “Show in Raid Only” and `/it bar show`.
-- **Cooldowns not updating**: Ensure you’re in group for broadcast; try `/it debug` and cast a taunt to see detection.
-- **Can’t move tracker when locked**: Use options menu → **Unlock Position**, then move, then lock again (menu or X).
-- **DTPS not showing**: Enable in options or `/it dtps on`; you must be in combat to broadcast.
+### Tracker won't show
+- Check `/it bar show`
+- Verify you're in a raid (if "Show in Raid Only" is enabled)
+- Ensure you've added taunters via `/it config`
+- Make sure taunters are currently in your group
 
----
+### Cooldowns not detecting
+- Enable debug mode: `/it debug`
+- Cast a taunt and check for detection messages
+- Verify the spell name matches exactly in `IchaTaunt_Spells.lua`
+- Check if player is in your tracked taunters list
+
+### UI is off-screen
+- Use `/it reset` to center the tracker
+- Use `/it bar show` to ensure it's visible
+
+### Scrolling doesn't work in config
+- Make sure your mouse is inside the panel
+- Use mouse wheel to scroll up/down
+- Works in both left (raid/party) and right (taunt order) panels
+
+### Resist not showing
+- Resist detection works by parsing combat log text
+- Look for "was resisted" or "resists" in the combat message
+- Enable `/it debug` to see raw combat messages
 
 ## FAQ
 
+**Q: Does this work on retail WoW?**  
+A: No, this is specifically designed for Turtle WoW (1.12 client) with custom spells.
+
+**Q: Can I track hunters/rogues/etc?**  
+A: Only classes with actual taunt abilities are shown (Warriors, Druids, Paladins, Shamans).
+
+**Q: Will this work in dungeons?**  
+A: Yes! Works in any group size - solo, party (5), or raid (40).
+
 **Q: Does it sync between raid members?**  
-A: Yes. Taunter list and order sync from the leader; cooldown usage and resist are broadcast by the caster; on rejoin you can get current cooldown state from the leader.
+A: Currently no - each player tracks independently. Future feature planned.
 
-**Q: Does it work in party as well as raid?**  
-A: Yes. Sync and broadcast work in party and raid.
+**Q: Can I customize the bar colors?**  
+A: Not yet, but this is planned for a future update.
 
-**Q: Is DTPS heavy on memory or bandwidth?**  
-A: No. Small fixed buffers and one broadcast per tank per second in combat only.
+**Q: How do I report bugs?**  
+A: Enable debug mode (`/it debug`), reproduce the issue, and share the output.
 
-**Q: Can I add custom taunts?**  
-A: Yes. Edit `IchaTaunt_Spells.lua` with spell ID, name, cooldown, icon, and classes.
+## Version History
 
-**Q: Retail WoW?**  
-A: No. Built for Turtle WoW (1.12 client).
+### v1.1.1 (Current)
+- ✅ Fixed panel spacing alignment in configuration UI
+- ✅ Left and right panels now have consistent content positioning
 
----
+### v1.1
+- ✅ Removed debug chatter (now optional via `/it debug`)
+- ✅ Added scrolling to raid/party panels (supports 40-player raids)
+- ✅ Fixed spell cooldowns (Challenging Shout: 10min, Mocking Blow: 2min)
+- ✅ Improved UI stability and error handling
 
-## Version history
-
-### Modernized (current)
-
-- Raid sync: PallyPower-style config sync, cooldown broadcast, CD snapshot on rejoin after DC.
-- Cooldown persistence across reload/logoff with correct remaining time.
-- All taunts broadcast (single-target and AOE); resist broadcast; cooldown poller when hooks don’t fire.
-- DTPS module: per-tank damage rate, in-combat-only broadcast.
-- Tracker lock = click-through; Unlock/Lock Position in options (toggle button); X on tracker to lock.
-- Themes (default, dark, elvui) and scale.
-- Chat printing removed for clean UI; debug optional via `/it debug`.
-
-### Earlier
-
-- v1.1: Scrolling raid/party panels, fixed long cooldowns, optional debug.
-- v1.0: Basic taunt tracking, cooldown timers, resist, drag-and-drop config.
-
----
+### v1.0
+- Initial release
+- Basic taunt tracking
+- Cooldown timers
+- Resist detection
+- Drag-and-drop configuration
 
 ## Credits
 
 **Author**: Vibe-coded with Claude  
 **Dreamers**: Ichabaddie and Cinos (Oathsworn)  
+**Version**: 1.1.1  
 **For**: Turtle WoW (1.12 client)  
-**License**: Free to use and modify  
+**License**: Free to use and modify
 
-*Happy tanking. May your taunts never be resisted.*
+## Support
+
+For issues, suggestions, or contributions:
+- Use debug mode to diagnose issues
+- Check the FAQ above
+- Customize `IchaTaunt_Spells.lua` for new spells
+- Edit the code - it's yours to modify!
+
+---
+
+*Happy tanking! May your taunts never be resisted.* 🛡️
