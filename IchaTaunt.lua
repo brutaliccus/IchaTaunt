@@ -2615,14 +2615,11 @@ local function ShowTaunterPopup()
         leftScroll:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", -10, 10)
         leftScroll:EnableMouseWheel(true)
         leftScroll:SetScript("OnMouseWheel", function()
-            local newValue = this:GetVerticalScroll() - (arg1 * 20)
-            if newValue < 0 then
-                newValue = 0
-            end
-            local maxValue = this:GetVerticalScrollRange()
-            if newValue > maxValue then
-                newValue = maxValue
-            end
+            local step = 24
+            local newValue = this:GetVerticalScroll() - (arg1 * step)
+            if newValue < 0 then newValue = 0 end
+            local maxVal = this:GetVerticalScrollRange()
+            if maxVal and newValue > maxVal then newValue = maxVal end
             this:SetVerticalScroll(newValue)
         end)
         
@@ -2631,6 +2628,7 @@ local function ShowTaunterPopup()
         leftScrollChild:SetHeight(1)
         leftScroll:SetScrollChild(leftScrollChild)
         
+        f.leftScroll = leftScroll
         f.leftScrollChild = leftScrollChild
         
         -- RIGHT PANEL: Category Members
@@ -2653,14 +2651,11 @@ local function ShowTaunterPopup()
         rightScroll:SetPoint("BOTTOMRIGHT", rightPanel, "BOTTOMRIGHT", -10, 10)
         rightScroll:EnableMouseWheel(true)
         rightScroll:SetScript("OnMouseWheel", function()
-            local newValue = this:GetVerticalScroll() - (arg1 * 20)
-            if newValue < 0 then
-                newValue = 0
-            end
-            local maxValue = this:GetVerticalScrollRange()
-            if newValue > maxValue then
-                newValue = maxValue
-            end
+            local step = 24
+            local newValue = this:GetVerticalScroll() - (arg1 * step)
+            if newValue < 0 then newValue = 0 end
+            local maxVal = this:GetVerticalScrollRange()
+            if maxVal and newValue > maxVal then newValue = maxVal end
             this:SetVerticalScroll(newValue)
         end)
         
@@ -2669,6 +2664,7 @@ local function ShowTaunterPopup()
         rightScrollChild:SetHeight(1)
         rightScroll:SetScrollChild(rightScrollChild)
         
+        f.rightScroll = rightScroll
         f.rightScrollChild = rightScrollChild
 
         -- Store panels for refresh function
@@ -2889,9 +2885,13 @@ local function ShowTaunterPopup()
                 end
             end
             
-            -- Update left scroll child height
-            local leftContentHeight = math.abs(yOffset) + 5
+            -- Update left scroll child height so full raid list is scrollable
+            local leftContentHeight = math.abs(yOffset) + 15
             f.leftScrollChild:SetHeight(math.max(leftContentHeight, 1))
+            -- Force scroll frame to update its scroll range (fixes "can't scroll past ~15 members")
+            if f.leftScroll and f.leftScroll.UpdateScrollChildRect then
+                f.leftScroll:UpdateScrollChildRect()
+            end
             
             -- RIGHT PANEL: Show members of selected category with controls
             yOffset = -5
@@ -3110,8 +3110,11 @@ local function ShowTaunterPopup()
             end
             
             -- Update right scroll child height
-            local rightContentHeight = math.abs(yOffset) + 5
+            local rightContentHeight = math.abs(yOffset) + 15
             f.rightScrollChild:SetHeight(math.max(rightContentHeight, 1))
+            if f.rightScroll and f.rightScroll.UpdateScrollChildRect then
+                f.rightScroll:UpdateScrollChildRect()
+            end
         end
         
         -- Try to assign RefreshPanels with error handling
