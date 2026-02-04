@@ -747,9 +747,20 @@ function IchaTaunt:HandleCombatMessage(eventType)
                 -- Always process if caster is tracked OR if caster is the local player
                 -- (local player should always broadcast even if not in their own taunter list)
                 local isLocalPlayer = (caster == UnitName("player"))
-                local isTracked = self.taunters[caster]
+                local isTracked = IchaTauntDB.taunters[caster] or self.taunters[caster]
 
-                if isTracked or isLocalPlayer then
+                -- Also check if player is in any category
+                local inAnyCategory = false
+                if IchaTaunt_Categories and IchaTauntDB.categories then
+                    for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                        if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members and IchaTauntDB.categories[cat].members[caster] then
+                            inAnyCategory = true
+                            break
+                        end
+                    end
+                end
+
+                if isTracked or isLocalPlayer or inAnyCategory then
                     -- Check if we have a recent broadcast sync for this player/spell (priority: broadcast > combat log)
                     -- If the caster has the addon and is broadcasting, we don't need combat log fallback
                     local casterNormalized = self:NormalizePlayerName(caster)
@@ -1279,18 +1290,17 @@ function IchaTaunt:CreateUI()
     lockBtn:SetWidth(20)
     lockBtn:SetHeight(20)
     lockBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
+    lockBtn:EnableMouse(true)
 
     -- Lock icon texture (shows lock/unlock state)
     lockBtn.icon = lockBtn:CreateTexture(nil, "ARTWORK")
-    lockBtn.icon:SetAllPoints(lockBtn)
-    lockBtn.icon:SetTexture("Interface\\Buttons\\LockButton-Unlocked-Up")
-    lockBtn.icon:SetTexCoord(0, 1, 0, 1)
+    lockBtn.icon:SetWidth(16)
+    lockBtn.icon:SetHeight(16)
+    lockBtn.icon:SetPoint("CENTER", lockBtn, "CENTER", 0, 0)
+    lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")  -- Unlocked key icon
 
-    -- Border for the lock button
-    lockBtn.border = lockBtn:CreateTexture(nil, "OVERLAY")
-    lockBtn.border:SetAllPoints(lockBtn)
-    lockBtn.border:SetTexture("Interface\\Buttons\\LockButton-Border")
-    lockBtn.border:SetAlpha(0.7)
+    -- Start hidden (will show on frame mouseover)
+    lockBtn:SetAlpha(0)
 
     -- Highlight texture
     lockBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
@@ -1314,26 +1324,26 @@ function IchaTaunt:CreateUI()
 
     lockBtn:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        -- Hide button again if locked (unless mouse is still over main frame)
-        if IchaTaunt.locked and not MouseIsOver(f) then
+        -- Hide button unless mouse is still over main frame
+        if not MouseIsOver(f) then
             this:SetAlpha(0)
         end
     end)
 
     f.lockBtn = lockBtn
 
-    -- Show/hide lock button on frame hover when locked
+    -- Show/hide lock button on frame hover (always hidden unless mousing over)
     f:SetScript("OnEnter", function()
-        if IchaTaunt.locked and IchaTaunt.frame.lockBtn then
-            IchaTaunt.frame.lockBtn:SetAlpha(1)
+        if this.lockBtn then
+            this.lockBtn:SetAlpha(1)
         end
     end)
 
     f:SetScript("OnLeave", function()
-        if IchaTaunt.locked and IchaTaunt.frame.lockBtn then
-            -- Small delay check - only hide if not hovering over lock button
-            if not MouseIsOver(IchaTaunt.frame.lockBtn) then
-                IchaTaunt.frame.lockBtn:SetAlpha(0)
+        if this.lockBtn then
+            -- Only hide if not hovering over lock button itself
+            if not MouseIsOver(this.lockBtn) then
+                this.lockBtn:SetAlpha(0)
             end
         end
     end)
@@ -1457,7 +1467,12 @@ function IchaTaunt:RebuildListInternal()
 
     -- Determine growth direction
     local growUpward = IchaTauntDB.growUpward
-    local yOffset = -5
+    local yOffset
+    if growUpward then
+        yOffset = 5  -- Start from bottom, grow upward
+    else
+        yOffset = -5  -- Start from top, grow downward
+    end
 
     local globalIndex = 1  -- Global ordering number across all categories
 
@@ -1471,17 +1486,25 @@ function IchaTaunt:RebuildListInternal()
 
         if table.getn(members) > 0 then
             -- Create category header
-            yOffset = self:CreateCategoryHeader(category, yOffset)
+            yOffset = self:CreateCategoryHeader(category, yOffset, growUpward)
 
             -- Create bars for members in this category
             for _, name in ipairs(members) do
                 self:CreateTaunterBar(name, yOffset, globalIndex, growUpward)
-                yOffset = yOffset - 28  -- Move down for next bar
+                if growUpward then
+                    yOffset = yOffset + 28  -- Move up for next bar
+                else
+                    yOffset = yOffset - 28  -- Move down for next bar
+                end
                 globalIndex = globalIndex + 1
             end
 
             -- Add spacing between categories
-            yOffset = yOffset - 5
+            if growUpward then
+                yOffset = yOffset + 5
+            else
+                yOffset = yOffset - 5
+            end
         end
     end
     
@@ -1619,7 +1642,7 @@ end
 
 -- Create clean taunter row: Order | Name | Icons
 -- Create a category header
-function IchaTaunt:CreateCategoryHeader(category, yOffset)
+function IchaTaunt:CreateCategoryHeader(category, yOffset, growUpward)
     local theme = self:GetTheme()
     local t = theme.tracker
 
@@ -1627,7 +1650,13 @@ function IchaTaunt:CreateCategoryHeader(category, yOffset)
     local header = CreateFrame("Frame", nil, parent)
     header:SetWidth(280)
     header:SetHeight(18)
-    header:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
+
+    -- Anchor differently based on growth direction
+    if growUpward then
+        header:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 5, yOffset)
+    else
+        header:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
+    end
 
     -- Category name text
     local categoryName = IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_NAMES[category] or category
@@ -1645,7 +1674,12 @@ function IchaTaunt:CreateCategoryHeader(category, yOffset)
     end
     table.insert(self.categoryHeaders, header)
 
-    return yOffset - 20  -- Return next yOffset after header
+    -- Return next yOffset after header
+    if growUpward then
+        return yOffset + 20
+    else
+        return yOffset - 20
+    end
 end
 
 function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward)
@@ -1656,7 +1690,13 @@ function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward)
     local bar = CreateFrame("Frame", nil, parent)
     bar:SetWidth(280)
     bar:SetHeight(26)  -- Reduced from 32 to 26 for tighter spacing
-    bar:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
+
+    -- Anchor differently based on growth direction
+    if growUpward then
+        bar:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 5, yOffset)
+    else
+        bar:SetPoint("TOPLEFT", parent, "TOPLEFT", 5, yOffset)
+    end
 
     -- Order number (left aligned) - use theme color
     bar.orderText = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -1850,8 +1890,9 @@ end
 function IchaTaunt:UpdateLockState()
     if not self.frame then return end
 
-    -- When locked: click-through so the tracker doesn't block camera/clicking the world
-    self.frame:EnableMouse(not self.locked)
+    -- Keep mouse enabled always so lock button can appear on mouseover
+    -- Just disable dragging when locked
+    self.frame:EnableMouse(true)
 
     -- Update backdrop visibility based on lock state
     if self.locked then
@@ -1869,19 +1910,17 @@ function IchaTaunt:UpdateLockState()
     -- Keep options menu lock/unlock button in sync
     self:RefreshLockUnlockButton()
 
-    -- Update lock icon appearance and visibility
+    -- Update lock icon appearance (button is always hidden unless mousing over frame)
     if self.frame.lockBtn and self.frame.lockBtn.icon then
         if self.locked then
-            -- Show locked icon
-            self.frame.lockBtn.icon:SetTexture("Interface\\Buttons\\LockButton-Locked-Up")
-            -- Hide the button when locked (will show on mouseover)
-            self.frame.lockBtn:SetAlpha(0)
+            -- Show locked icon (closed lock)
+            self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_06")  -- Locked/closed
         else
-            -- Show unlocked icon
-            self.frame.lockBtn.icon:SetTexture("Interface\\Buttons\\LockButton-Unlocked-Up")
-            -- Always show when unlocked
-            self.frame.lockBtn:SetAlpha(1)
+            -- Show unlocked icon (open lock/key)
+            self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")  -- Unlocked/key
         end
+        -- Always hide by default (will show on frame mouseover)
+        self.frame.lockBtn:SetAlpha(0)
     end
 end
 
@@ -2295,7 +2334,7 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         return
     end
 
-    -- DTPS:value:window - Damage taken per second from sender (they broadcast their own)
+    -- DTPS:dtps:htps:window - Damage and healing taken per second from sender (they broadcast their own)
     if strfind(msg, "^DTPS:") then
         if IchaTaunt_DPS and IchaTaunt_DPS.ReceiveDTPS then
             local dataStr = strsub(msg, 6)
@@ -2310,7 +2349,9 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
                 if strsub(dataStr, pos, pos) == ":" then pos = pos + 1 end
             end
             if parts[1] then
-                IchaTaunt_DPS:ReceiveDTPS(sender, parts[1], parts[2])
+                -- New format: DTPS:dtps:htps:window (parts[1]=dtps, parts[2]=htps, parts[3]=window)
+                -- Old format: DTPS:value:window (parts[1]=value, parts[2]=window)
+                IchaTaunt_DPS:ReceiveDTPS(sender, parts[1], parts[2], parts[3])
             end
         end
         return
@@ -2426,44 +2467,13 @@ function IchaTaunt:ReceiveTaunters(msg)
     self:ParseSyncMessage("TAUNTERS:" .. msg, "UNKNOWN")
 end
 
--- Helper function to create game-style close button (red background, yellow X)
+-- Helper function to create game-style close button (same style as +/- buttons)
 local function CreateCloseButton(parent, onClickFunc)
-    local closeX = CreateFrame("Button", nil, parent)
+    local closeX = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
     closeX:SetWidth(22)
     closeX:SetHeight(22)
-
-    -- Red background
-    local bg = closeX:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(closeX)
-    bg:SetTexture("Interface\\Buttons\\UI-Panel-MinimizeButton-Up")
-    closeX.bg = bg
-
-    -- Yellow X text
-    local closeXText = closeX:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    closeXText:SetPoint("CENTER", closeX, "CENTER", 0, 1)
-    closeXText:SetText("X")
-    closeXText:SetTextColor(1, 0.82, 0)  -- Yellow
-    closeX.text = closeXText
-
-    -- Red background color
-    closeX:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = nil,
-        tile = false, tileSize = 0, edgeSize = 0,
-        insets = { left = 0, right = 0, top = 0, bottom = 0 }
-    })
-    closeX:SetBackdropColor(0.7, 0, 0, 1)  -- Red
-
-    -- Hover effect
-    closeX:SetScript("OnEnter", function()
-        closeX:SetBackdropColor(1, 0, 0, 1)  -- Brighter red on hover
-    end)
-    closeX:SetScript("OnLeave", function()
-        closeX:SetBackdropColor(0.7, 0, 0, 1)  -- Normal red
-    end)
-
+    closeX:SetText("X")
     closeX:SetScript("OnClick", onClickFunc)
-
     return closeX
 end
 
@@ -2476,8 +2486,8 @@ local function ShowTaunterPopup()
             local c = theme.config
 
             local f = CreateFrame("Frame", "IchaTauntTaunterUI", UIParent)
-        f:SetWidth(600)
-        f:SetHeight(400)  -- Standard height
+        f:SetWidth(900)  -- Wider to accommodate 4 groups per row
+        f:SetHeight(650)  -- Taller to accommodate 2 rows of groups
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         f:SetFrameStrata("DIALOG")  -- Ensure config window appears above other UI elements
 
@@ -2596,46 +2606,53 @@ local function ShowTaunterPopup()
         end
         f.catButtons = catButtons
 
-        -- LEFT PANEL: Raid/Party Members
-        local leftPanel = CreateFrame("Frame", nil, f)
-        leftPanel:SetWidth(260)
-        leftPanel:SetHeight(280)
-        leftPanel:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -85)
-        leftPanel:SetBackdrop(c.panelBackdrop)
-        leftPanel:SetBackdropColor(unpack(c.panelBgColor))
+        -- RAID GROUPS GRID: Show G1-G8 in 2 rows of 4
+        local groupsContainer = CreateFrame("Frame", nil, f)
+        groupsContainer:SetWidth(600)
+        groupsContainer:SetHeight(480)
+        groupsContainer:SetPoint("TOPLEFT", f, "TOPLEFT", 15, -85)
 
-        local leftTitle = leftPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        leftTitle:SetPoint("TOP", leftPanel, "TOP", 0, -10)
-        leftTitle:SetText("Raid/Party")
-        leftTitle:SetTextColor(unpack(c.titleColor))
-        
-        -- Create scroll frame for left panel
-        local leftScroll = CreateFrame("ScrollFrame", nil, leftPanel)
-        leftScroll:SetPoint("TOPLEFT", leftPanel, "TOPLEFT", 10, -30)
-        leftScroll:SetPoint("BOTTOMRIGHT", leftPanel, "BOTTOMRIGHT", -10, 10)
-        leftScroll:EnableMouseWheel(true)
-        leftScroll:SetScript("OnMouseWheel", function()
-            local step = 24
-            local newValue = this:GetVerticalScroll() - (arg1 * step)
-            if newValue < 0 then newValue = 0 end
-            local maxVal = this:GetVerticalScrollRange()
-            if maxVal and newValue > maxVal then newValue = maxVal end
-            this:SetVerticalScroll(newValue)
-        end)
-        
-        local leftScrollChild = CreateFrame("Frame", nil, leftScroll)
-        leftScrollChild:SetWidth(230)
-        leftScrollChild:SetHeight(1)
-        leftScroll:SetScrollChild(leftScrollChild)
-        
-        f.leftScroll = leftScroll
-        f.leftScrollChild = leftScrollChild
+        -- Create 8 group panels (G1-G4 top row, G5-G8 bottom row)
+        f.groupPanels = {}
+        local groupWidth = 140
+        local groupHeight = 230
+        local groupSpacing = 10
+
+        for groupNum = 1, 8 do
+            local panel = CreateFrame("Frame", nil, groupsContainer)
+            panel:SetWidth(groupWidth)
+            panel:SetHeight(groupHeight)
+            panel:SetBackdrop(c.panelBackdrop)
+            panel:SetBackdropColor(unpack(c.panelBgColor))
+
+            -- Position: G1-G4 on top row, G5-G8 on bottom row
+            local row = (groupNum <= 4) and 0 or 1
+            local col = math.mod(groupNum - 1, 4)
+            local xOffset = col * (groupWidth + groupSpacing)
+            local yOffset = -row * (groupHeight + groupSpacing)
+            panel:SetPoint("TOPLEFT", groupsContainer, "TOPLEFT", xOffset, yOffset)
+
+            -- Group header
+            local header = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            header:SetPoint("TOP", panel, "TOP", 0, -5)
+            header:SetText("G" .. groupNum)
+            header:SetTextColor(unpack(c.titleColor))
+            panel.header = header
+
+            -- Container for player entries
+            panel.entries = {}
+            panel.groupNum = groupNum
+
+            f.groupPanels[groupNum] = panel
+        end
+
+        f.groupsContainer = groupsContainer
         
         -- RIGHT PANEL: Category Members
         local rightPanel = CreateFrame("Frame", nil, f)
         rightPanel:SetWidth(260)
-        rightPanel:SetHeight(280)
-        rightPanel:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -85)
+        rightPanel:SetHeight(545)  -- Taller to match new height
+        rightPanel:SetPoint("TOPRIGHT", f, "TOPRIGHT", -15, -85)
         rightPanel:SetBackdrop(c.panelBackdrop)
         rightPanel:SetBackdropColor(unpack(c.panelBgColor))
 
@@ -2725,172 +2742,309 @@ local function ShowTaunterPopup()
                 f.rightTitle:SetText(catName .. " (use arrows to reorder)")
             end
 
-            -- Clear existing elements
-            if f.leftElements then
-                for _, element in pairs(f.leftElements) do
-                    if element.Hide then element:Hide() end
+            -- Clear existing group panel entries
+            if f.groupPanels then
+                for _, panel in ipairs(f.groupPanels) do
+                    if panel.entries then
+                        for _, entry in ipairs(panel.entries) do
+                            if entry.Hide then entry:Hide() end
+                        end
+                        panel.entries = {}
+                    end
                 end
             end
+
             if f.rightElements then
                 for _, element in pairs(f.rightElements) do
                     if element.Hide then element:Hide() end
                 end
             end
 
-            f.leftElements = {}
             f.rightElements = {}
 
-            -- LEFT PANEL: Show all group members with + buttons
-            local yOffset = -5
-            local allMembers = {}
-            
-            -- Get all group members
-            if GetNumRaidMembers() > 0 then
+            -- POPULATE GROUP PANELS with raid members
+            local inRaid = GetNumRaidMembers() > 0
+            local inParty = GetNumPartyMembers() > 0
+
+            if inRaid then
+                -- Get raid members organized by group
                 for i = 1, GetNumRaidMembers() do
-                    local name, _, _, _, _, classFile = GetRaidRosterInfo(i)
-                    if name and classFile then
-                        table.insert(allMembers, {name = name, class = classFile})
+                    local name, _, subgroup, _, _, classFile = GetRaidRosterInfo(i)
+                    if name and classFile and subgroup then
+                        local panel = f.groupPanels[subgroup]
+                        if panel then
+                            -- Show all classes that have trackable spells
+                            local hasTrackableSpells = IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[classFile]
+                            if hasTrackableSpells then
+                                local entryIdx = table.getn(panel.entries) + 1
+                                local yOffset = -25 - ((entryIdx - 1) * 22)
+
+                                local entry = CreateFrame("Frame", nil, panel)
+                                entry:SetWidth(130)
+                                entry:SetHeight(20)
+                                entry:SetPoint("TOPLEFT", panel, "TOPLEFT", 5, yOffset)
+
+                                -- Player name with class color
+                                local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                                nameText:SetPoint("LEFT", entry, "LEFT", 0, 0)
+                                nameText:SetText(name)
+                                nameText:SetWidth(100)
+                                nameText:SetJustifyH("LEFT")
+                                local r, g, b = unpack(IchaTaunt:GetClassColor(classFile))
+                                nameText:SetTextColor(r, g, b)
+
+                                -- + button
+                                local addBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
+                                addBtn:SetWidth(18)
+                                addBtn:SetHeight(18)
+                                addBtn:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
+                                addBtn:SetText("+")
+
+                                -- Capture values for closure
+                                local playerName = name
+                                local playerClass = classFile
+
+                                -- Disable button if not leader in a group
+                                local canControl = IchaTaunt:CanControl()
+                                if not canControl then
+                                    addBtn:Disable()
+                                end
+
+                                addBtn:SetScript("OnClick", function()
+                                    -- Check permissions
+                                    if not IchaTaunt:CanControl() then
+                                        print("IchaTaunt: Only raid leader/officers can modify taunter list")
+                                        return
+                                    end
+
+                                    -- Ensure IchaTauntDB structure
+                                    if not IchaTauntDB then IchaTauntDB = {} end
+                                    if not IchaTauntDB.taunterOrder then IchaTauntDB.taunterOrder = {} end
+                                    if not IchaTauntDB.taunters then IchaTauntDB.taunters = {} end
+
+                                    -- Check if already added
+                                    local found = false
+                                    for _, orderName in ipairs(IchaTauntDB.taunterOrder) do
+                                        if orderName == playerName then
+                                            found = true
+                                            break
+                                        end
+                                    end
+
+                                    if not found then
+                                        table.insert(IchaTauntDB.taunterOrder, playerName)
+                                        IchaTauntDB.taunters[playerName] = true
+
+                                        -- Add to selected category
+                                        local selectedCat = f.selectedCategory or "tanks"
+                                        if IchaTaunt_Categories and IchaTaunt_Categories.AddToCategory then
+                                            IchaTaunt_Categories:AddToCategory(playerName, selectedCat)
+                                        end
+
+                                        IchaTaunt.taunters = IchaTauntDB.taunters or {}
+                                        IchaTaunt.order = IchaTauntDB.taunterOrder or {}
+
+                                        IchaTaunt:AutoBroadcast()
+                                        if RefreshPanels then RefreshPanels() end
+                                        if IchaTaunt.RefreshRoster then IchaTaunt:RefreshRoster() end
+
+                                        if IchaTauntDB.debugMode then
+                                            print("IchaTaunt: Added " .. playerName .. " to " .. selectedCat)
+                                        end
+                                    end
+                                end)
+
+                                table.insert(panel.entries, entry)
+                            end
+                        end
                     end
                 end
-            elseif GetNumPartyMembers() > 0 then
-                for i = 1, GetNumPartyMembers() do
-                    local name = UnitName("party" .. i)
-                    local _, classFile = UnitClass("party" .. i)  -- FIXED: UnitClass returns 2 values
-                    if name and classFile then
-                        table.insert(allMembers, {name = name, class = classFile})
+            elseif inParty then
+                -- Party mode: show all party members in G1
+                local panel = f.groupPanels[1]
+                if panel then
+                    local entryIdx = 1
+
+                    -- Add party members
+                    for i = 1, GetNumPartyMembers() do
+                        local name = UnitName("party" .. i)
+                        local _, classFile = UnitClass("party" .. i)
+                        if name and classFile then
+                            local hasTrackableSpells = IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[classFile]
+                            if hasTrackableSpells then
+                                local yOffset = -25 - ((entryIdx - 1) * 22)
+
+                                local entry = CreateFrame("Frame", nil, panel)
+                                entry:SetWidth(130)
+                                entry:SetHeight(20)
+                                entry:SetPoint("TOPLEFT", panel, "TOPLEFT", 5, yOffset)
+
+                                local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                                nameText:SetPoint("LEFT", entry, "LEFT", 0, 0)
+                                nameText:SetText(name)
+                                nameText:SetWidth(100)
+                                nameText:SetJustifyH("LEFT")
+                                local r, g, b = unpack(IchaTaunt:GetClassColor(classFile))
+                                nameText:SetTextColor(r, g, b)
+
+                                local addBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
+                                addBtn:SetWidth(18)
+                                addBtn:SetHeight(18)
+                                addBtn:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
+                                addBtn:SetText("+")
+
+                                local playerName = name
+
+                                addBtn:SetScript("OnClick", function()
+                                    if not IchaTauntDB then IchaTauntDB = {} end
+                                    if not IchaTauntDB.taunterOrder then IchaTauntDB.taunterOrder = {} end
+                                    if not IchaTauntDB.taunters then IchaTauntDB.taunters = {} end
+
+                                    local found = false
+                                    for _, orderName in ipairs(IchaTauntDB.taunterOrder) do
+                                        if orderName == playerName then found = true break end
+                                    end
+
+                                    if not found then
+                                        table.insert(IchaTauntDB.taunterOrder, playerName)
+                                        IchaTauntDB.taunters[playerName] = true
+
+                                        local selectedCat = f.selectedCategory or "tanks"
+                                        if IchaTaunt_Categories and IchaTaunt_Categories.AddToCategory then
+                                            IchaTaunt_Categories:AddToCategory(playerName, selectedCat)
+                                        end
+
+                                        IchaTaunt.taunters = IchaTauntDB.taunters or {}
+                                        IchaTaunt.order = IchaTauntDB.taunterOrder or {}
+                                        IchaTaunt:AutoBroadcast()
+                                        if RefreshPanels then RefreshPanels() end
+                                        if IchaTaunt.RefreshRoster then IchaTaunt:RefreshRoster() end
+                                    end
+                                end)
+
+                                table.insert(panel.entries, entry)
+                                entryIdx = entryIdx + 1
+                            end
+                        end
                     end
-                end
-                -- Add yourself
-                local playerName = UnitName("player")
-                local _, playerClass = UnitClass("player")  -- FIXED: UnitClass returns 2 values
-                if playerName and playerClass then
-                    table.insert(allMembers, {name = playerName, class = playerClass})
+
+                    -- Add player
+                    local playerName = UnitName("player")
+                    local _, playerClass = UnitClass("player")
+                    if playerName and playerClass then
+                        local hasTrackableSpells = IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[playerClass]
+                        if hasTrackableSpells then
+                            local yOffset = -25 - ((entryIdx - 1) * 22)
+
+                            local entry = CreateFrame("Frame", nil, panel)
+                            entry:SetWidth(130)
+                            entry:SetHeight(20)
+                            entry:SetPoint("TOPLEFT", panel, "TOPLEFT", 5, yOffset)
+
+                            local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                            nameText:SetPoint("LEFT", entry, "LEFT", 0, 0)
+                            nameText:SetText(playerName)
+                            nameText:SetWidth(100)
+                            nameText:SetJustifyH("LEFT")
+                            local r, g, b = unpack(IchaTaunt:GetClassColor(playerClass))
+                            nameText:SetTextColor(r, g, b)
+
+                            local addBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
+                            addBtn:SetWidth(18)
+                            addBtn:SetHeight(18)
+                            addBtn:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
+                            addBtn:SetText("+")
+
+                            addBtn:SetScript("OnClick", function()
+                                if not IchaTauntDB then IchaTauntDB = {} end
+                                if not IchaTauntDB.taunterOrder then IchaTauntDB.taunterOrder = {} end
+                                if not IchaTauntDB.taunters then IchaTauntDB.taunters = {} end
+
+                                local found = false
+                                for _, orderName in ipairs(IchaTauntDB.taunterOrder) do
+                                    if orderName == playerName then found = true break end
+                                end
+
+                                if not found then
+                                    table.insert(IchaTauntDB.taunterOrder, playerName)
+                                    IchaTauntDB.taunters[playerName] = true
+
+                                    local selectedCat = f.selectedCategory or "tanks"
+                                    if IchaTaunt_Categories and IchaTaunt_Categories.AddToCategory then
+                                        IchaTaunt_Categories:AddToCategory(playerName, selectedCat)
+                                    end
+
+                                    IchaTaunt.taunters = IchaTauntDB.taunters or {}
+                                    IchaTaunt.order = IchaTauntDB.taunterOrder or {}
+                                    IchaTaunt:AutoBroadcast()
+                                    if RefreshPanels then RefreshPanels() end
+                                    if IchaTaunt.RefreshRoster then IchaTaunt:RefreshRoster() end
+                                end
+                            end)
+
+                            table.insert(panel.entries, entry)
+                        end
+                    end
                 end
             else
-                -- Solo
-                local playerName = UnitName("player")
-                local _, playerClass = UnitClass("player")  -- FIXED: UnitClass returns 2 values
-                if playerName and playerClass then
-                    table.insert(allMembers, {name = playerName, class = playerClass})
-                end
-            end
-            
-            -- Sort members alphabetically
-            table.sort(allMembers, function(a, b) return a.name < b.name end)
+                -- Solo: show player in G1
+                local panel = f.groupPanels[1]
+                if panel then
+                    local playerName = UnitName("player")
+                    local _, playerClass = UnitClass("player")
+                    if playerName and playerClass then
+                        local hasTrackableSpells = IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[playerClass]
+                        if hasTrackableSpells then
+                            local entry = CreateFrame("Frame", nil, panel)
+                            entry:SetWidth(130)
+                            entry:SetHeight(20)
+                            entry:SetPoint("TOPLEFT", panel, "TOPLEFT", 5, -25)
 
-            -- Create left panel entries
-            for _, member in ipairs(allMembers) do
-                local name = member.name
-                local class = member.class
+                            local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                            nameText:SetPoint("LEFT", entry, "LEFT", 0, 0)
+                            nameText:SetText(playerName)
+                            nameText:SetWidth(100)
+                            nameText:SetJustifyH("LEFT")
+                            local r, g, b = unpack(IchaTaunt:GetClassColor(playerClass))
+                            nameText:SetTextColor(r, g, b)
 
-                -- Show all classes that have trackable spells (v2.0 - all classes supported)
-                local hasTrackableSpells = IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[class]
-                if hasTrackableSpells then
-                    local entry = CreateFrame("Frame", nil, f.leftScrollChild)
-                    entry:SetWidth(240)
-                    entry:SetHeight(20)
-                    entry:SetPoint("TOPLEFT", f.leftScrollChild, "TOPLEFT", 0, yOffset)
-                    
-                    -- Player name with class color
-                    local nameText = entry:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    nameText:SetPoint("LEFT", entry, "LEFT", 0, 0)
-                    nameText:SetText(name)
-                    local r, g, b = unpack(IchaTaunt:GetClassColor(class))
-                    nameText:SetTextColor(r, g, b)
-                    
-                    -- + button
-                    local addBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
-                    addBtn:SetWidth(20)
-                    addBtn:SetHeight(20)
-                    addBtn:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
-                    addBtn:SetText("+")
-                    
-                    -- Capture the name value locally to avoid closure issues
-                    local playerName = name
+                            local addBtn = CreateFrame("Button", nil, entry, "UIPanelButtonTemplate")
+                            addBtn:SetWidth(18)
+                            addBtn:SetHeight(18)
+                            addBtn:SetPoint("RIGHT", entry, "RIGHT", 0, 0)
+                            addBtn:SetText("+")
 
-                    -- Disable button if not leader in a group
-                    local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
-                    if inGroup and not IchaTaunt:CanControl() then
-                        addBtn:Disable()
+                            addBtn:SetScript("OnClick", function()
+                                if not IchaTauntDB then IchaTauntDB = {} end
+                                if not IchaTauntDB.taunterOrder then IchaTauntDB.taunterOrder = {} end
+                                if not IchaTauntDB.taunters then IchaTauntDB.taunters = {} end
+
+                                local found = false
+                                for _, orderName in ipairs(IchaTauntDB.taunterOrder) do
+                                    if orderName == playerName then found = true break end
+                                end
+
+                                if not found then
+                                    table.insert(IchaTauntDB.taunterOrder, playerName)
+                                    IchaTauntDB.taunters[playerName] = true
+
+                                    local selectedCat = f.selectedCategory or "tanks"
+                                    if IchaTaunt_Categories and IchaTaunt_Categories.AddToCategory then
+                                        IchaTaunt_Categories:AddToCategory(playerName, selectedCat)
+                                    end
+
+                                    IchaTaunt.taunters = IchaTauntDB.taunters or {}
+                                    IchaTaunt.order = IchaTauntDB.taunterOrder or {}
+                                    IchaTaunt:AutoBroadcast()
+                                    if RefreshPanels then RefreshPanels() end
+                                    if IchaTaunt.RefreshRoster then IchaTaunt:RefreshRoster() end
+                                end
+                            end)
+
+                            table.insert(panel.entries, entry)
+                        end
                     end
-
-                    addBtn:SetScript("OnClick", function()
-                        -- Check permissions in group
-                        local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
-                        if inGroup and not IchaTaunt:CanControl() then
-                            print("IchaTaunt: Only raid leader/officers can modify taunter list")
-                            return
-                        end
-
-                        -- Ensure IchaTauntDB exists and has proper structure
-                        if not IchaTauntDB then
-                            IchaTauntDB = {
-                                taunterOrder = {},
-                                taunters = {},
-                                showInRaidOnly = false,
-                                position = { x = 0, y = 0 }
-                            }
-                        end
-                        if not IchaTauntDB.taunterOrder then
-                            IchaTauntDB.taunterOrder = {}
-                        end
-                        if not IchaTauntDB.taunters then
-                            IchaTauntDB.taunters = {}
-                        end
-
-                        -- Add to taunt order if not already there
-                        local found = false
-                        for _, orderName in ipairs(IchaTauntDB.taunterOrder) do
-                            if orderName == playerName then
-                                found = true
-                                break
-                            end
-                        end
-
-                        if not found then
-                            table.insert(IchaTauntDB.taunterOrder, playerName)
-                            IchaTauntDB.taunters[playerName] = true
-
-                            -- Add to selected category (using categories module)
-                            local selectedCat = f.selectedCategory or "tanks"
-                            if IchaTaunt_Categories and IchaTaunt_Categories.AddToCategory then
-                                IchaTaunt_Categories:AddToCategory(playerName, selectedCat)
-                            end
-
-                            -- Safely update local references
-                            IchaTaunt.taunters = IchaTauntDB.taunters or {}
-                            IchaTaunt.order = IchaTauntDB.taunterOrder or {}
-
-                            -- Auto-broadcast to raid if enabled
-                            IchaTaunt:AutoBroadcast()
-
-                            -- Safely refresh UI
-                            if RefreshPanels then
-                                RefreshPanels()
-                            end
-                            if IchaTaunt.RefreshRoster then
-                                IchaTaunt:RefreshRoster()
-                            end
-                            if IchaTauntDB.debugMode then
-                                print("IchaTaunt: Added " .. playerName .. " to " .. selectedCat)
-                            end
-                        end
-                    end)
-                    
-                    -- Safely add to elements table
-                    if f.leftElements then
-                        table.insert(f.leftElements, entry)
-                    end
-                    yOffset = yOffset - 22
                 end
-            end
-            
-            -- Update left scroll child height so full raid list is scrollable
-            local leftContentHeight = math.abs(yOffset) + 15
-            f.leftScrollChild:SetHeight(math.max(leftContentHeight, 1))
-            -- Force scroll frame to update its scroll range (fixes "can't scroll past ~15 members")
-            if f.leftScroll and f.leftScroll.UpdateScrollChildRect then
-                f.leftScroll:UpdateScrollChildRect()
             end
             
             -- RIGHT PANEL: Show members of selected category with controls
@@ -3149,8 +3303,28 @@ local function ShowTaunterPopup()
             GameTooltip:Hide()
         end)
 
-            f:Hide()
-            IchaTaunt.taunterUI = f
+            -- Register events for dynamic roster updates
+            f:RegisterEvent("RAID_ROSTER_UPDATE")
+            f:RegisterEvent("PARTY_MEMBERS_CHANGED")
+            f:SetScript("OnEvent", function()
+                if this:IsVisible() and RefreshPanels then
+                    RefreshPanels()
+                end
+            end)
+
+            -- OnUpdate to check for roster changes periodically (handles group reassignments)
+            f.lastUpdate = 0
+            f.updateInterval = 1.0  -- Check every 1 second
+            f:SetScript("OnUpdate", function()
+                if not this:IsVisible() then return end
+                this.lastUpdate = this.lastUpdate + (arg1 or 0)
+                if this.lastUpdate >= this.updateInterval then
+                    this.lastUpdate = 0
+                    if RefreshPanels then
+                        RefreshPanels()
+                    end
+                end
+            end)
 
             -- Hook into the frame's OnHide to close options menu
             f:SetScript("OnHide", function()
@@ -3158,6 +3332,9 @@ local function ShowTaunterPopup()
                     IchaTaunt.optionsMenu:Hide()
                 end
             end)
+
+            f:Hide()
+            IchaTaunt.taunterUI = f
         end
 
         -- Refresh panels and show
@@ -3203,7 +3380,7 @@ function IchaTaunt:CreateOptionsMenu()
 
     local f = CreateFrame("Frame", "IchaTauntOptionsMenu", UIParent)
     f:SetWidth(400)  -- Wider for 2-column layout
-    f:SetHeight(360) -- Height for 2 columns with DTPS slider
+    f:SetHeight(385) -- Height for 2 columns with DTPS slider and NET mode checkbox
     f:SetFrameStrata("DIALOG")
     f:SetFrameLevel(10)
 
@@ -3512,6 +3689,28 @@ function IchaTaunt:CreateOptionsMenu()
         end
     end)
 
+    -- NET mode checkbox (show HTPS when healing wins, DTPS when damage wins)
+    yOffset = yOffset - 24
+    local netCheck = CreateFrame("CheckButton", "IchaTauntNetModeCheck", f, "UICheckButtonTemplate")
+    netCheck:SetWidth(20)
+    netCheck:SetHeight(20)
+    netCheck:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    local netEnabled = false
+    if IchaTaunt_DPS and IchaTaunt_DPS.config then
+        netEnabled = IchaTaunt_DPS.config.showNetDTPS
+    end
+    netCheck:SetChecked(netEnabled)
+    netCheck:SetScript("OnClick", function()
+        local enabled = this:GetChecked() == 1
+        if IchaTaunt_DPS then
+            IchaTaunt_DPS:SetNetMode(enabled)
+        end
+    end)
+    f.netCheck = netCheck
+    local netLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    netLabel:SetPoint("LEFT", netCheck, "RIGHT", 2, 0)
+    netLabel:SetText("NET mode (HTPS vs DTPS)")
+
     f:Hide()
     self.optionsMenu = f
 end
@@ -3592,6 +3791,17 @@ function IchaTaunt:RefreshOptionsMenu()
     -- Update DTPS checkbox
     if f.dtpsCheck and IchaTaunt_DPS then
         f.dtpsCheck:SetChecked(IchaTaunt_DPS.config.enabled)
+    end
+
+    -- Update NET mode checkbox
+    if f.netCheck and IchaTaunt_DPS then
+        f.netCheck:SetChecked(IchaTaunt_DPS.config.showNetDTPS)
+    end
+
+    -- Update DTPS window value display
+    if f.windowValue and IchaTaunt_DPS then
+        local currentWindow = IchaTaunt_DPS.config.windowSize or 5
+        f.windowValue:SetText(currentWindow .. "s")
     end
 
     -- Update cooldown only mode checkbox
