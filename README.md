@@ -2,7 +2,7 @@
 
 A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors taunt cooldowns across your raid, with real-time sync between tanks.
 
-![Version](https://img.shields.io/badge/version-1.5.2-blue)
+![Version](https://img.shields.io/badge/version-1.7.3-blue)
 ![Client](https://img.shields.io/badge/client-Turtle%20WoW%201.12-green)
 
 ## Features
@@ -41,6 +41,16 @@ A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors 
 
 *Shaman and Paladin taunts are Turtle WoW custom abilities*
 
+### Display Options
+- **Cooldown Only Mode** - hide spell icons until they're on cooldown for a cleaner look
+
+### Spell Picker (NEW in 1.7)
+- **Visual spell picker** - dual-list UI to easily add spells to track
+- **Pre-built spell database** - curated list of trackable spells for all tank classes
+- **Category organization** - spells grouped by Taunt, Defensive, Interrupt, Mobility, CC, Offensive, Utility
+- **Cooldown override** - adjust cooldowns for talents that reduce them
+- **Cross-class support** - add spells from any tank class to your tracker
+
 ### User Interface
 - **Two-panel configuration** - left panel shows available tanks, right panel shows your tank order
 - **Click to add/remove** - use `+` and `-` buttons to manage your tank list
@@ -63,6 +73,8 @@ Interface/AddOns/IchaTaunt/
   IchaTaunt.toc
   IchaTaunt.lua
   IchaTaunt_Spells.lua
+  IchaTaunt_SpellDB.lua
+  IchaTaunt_TrackableSpells.lua
   IchaTaunt_Themes.lua
   IchaTaunt_DPS.lua
 ```
@@ -138,6 +150,8 @@ Interface/AddOns/IchaTaunt/
 - **Lock/Unlock** - Toggle tracker position lock
 - **Show in Raid Only** - Hide tracker when not in a raid
 - **DTPS Display** - Enable/disable damage taken tracking
+- **Cooldown Only Mode** - Hide icons until spell is on cooldown
+- **Custom Spells** - Add your own spells to track
 
 ### Sync System
 - **Raid Leader/Assist** can set tank order for the entire raid
@@ -155,6 +169,25 @@ Interface/AddOns/IchaTaunt/
 
 ## Adding Custom Spells
 
+### Via Spell Picker (Recommended)
+1. Open Options: `/it options`
+2. Click "Manage Custom Spells"
+3. Select a class tab (Warrior, Druid, Paladin, Shaman)
+4. Click on a spell in the left panel to select it
+5. Optionally enter a cooldown override (for talents that reduce cooldowns)
+6. Click `>>` to add the spell to your tracker
+7. Use `<<` or click the X to remove spells
+
+The spell picker shows:
+- **Icon and name** for each spell
+- **Default cooldown**
+- **Category** (Taunt, Defensive, etc.)
+- Already-tracked spells are grayed out
+
+### Cooldown Override
+If you have talents that reduce cooldown (e.g., Improved Taunt), enter the reduced cooldown in seconds before adding the spell. Leave blank to use the default cooldown.
+
+### Via File (Advanced)
 Edit `IchaTaunt_Spells.lua` to add new Turtle WoW taunts:
 
 ```lua
@@ -210,8 +243,37 @@ Settings saved in `WTF/Account/.../SavedVariables/IchaTaunt.lua`:
 - Tracker position and scale
 - Theme selection
 - DTPS configuration
+- Custom spells
+- Display options (cooldown only mode)
 
 ## Version History
+
+### v1.7.3
+- **Fixed GCD broadcast bug** - global cooldowns (< 2s) no longer broadcast as spell cooldowns
+- **Fixed cooldown display** - cooldowns now show immediately when spell is used (added UI refresh)
+- **Added Barkskin (Feral)** - Druid feral-specific barkskin (10 min CD) now in spell picker
+
+### v1.7.2
+- **Improved Options menu** - 2-column layout for better fit and organization
+- **Improved Spell Picker** - cooldown override now prominently placed above Add button
+- **Updated Trackable Spells** - all spells verified from database.turtlecraft.gg
+
+### v1.7.1
+- Added **Upward Growth Option** - tank list can now grow upward instead of downward
+- **Fixed AoE taunt sync bug** - Challenging Shout/Roar cooldowns now only appear on the caster's bar, not all tanks
+- **Fixed cooldown preservation** - tracked cooldowns no longer lost when adding/removing tanks
+
+### v1.7.0
+- Added **Spell Picker UI** - visual dual-list interface for adding spells
+- Added **Trackable Spells Database** - curated list of spells with cooldowns for all tank classes
+- **Category grouping** - spells organized by Taunt, Defensive, Interrupt, etc.
+- **Cooldown override** - adjust cooldowns when adding spells (for talents)
+- **Cross-class lookup** - full spell database from database.turtlecraft.gg
+
+### v1.6.0
+- Added **Cooldown Only Mode** - hide icons until they're on cooldown
+- Added **Custom Spells Editor** - add your own spells via in-game UI
+- Custom spells persist in SavedVariables (no file editing needed)
 
 ### v1.5.2
 - Options menu now follows selected theme

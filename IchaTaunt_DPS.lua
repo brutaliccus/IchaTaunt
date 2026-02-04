@@ -8,7 +8,7 @@ IchaTaunt_DPS = IchaTaunt_DPS or {}
 -- Configuration
 IchaTaunt_DPS.config = {
     enabled = true,
-    windowSize = 3,          -- Seconds of rolling window for live DTPS feed
+    windowSize = 5,          -- Seconds of rolling window for live DTPS feed (default 5, range 3-15)
     updateInterval = 0.5,    -- How often to update the display (seconds)
     broadcastInterval = 1,   -- How often to broadcast our own DTPS (seconds); low bandwidth
     warningThreshold = 1000, -- DTPS threshold for yellow warning

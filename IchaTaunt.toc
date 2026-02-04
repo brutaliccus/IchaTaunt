@@ -1,11 +1,14 @@
 ## Interface: 11200
 ## Title: IchaTaunt
-## Notes: Taunt tracker with cooldown timers and countdown bars
-## Version: 1.5.2
+## Notes: Raid cooldown tracker with category organization
+## Version: 2.0.0
 ## Author: IchaTaunt Team
 ## SavedVariables: IchaTauntDB
 
 IchaTaunt_Spells.lua
+IchaTaunt_SpellDB.lua
+IchaTaunt_TrackableSpells.lua
 IchaTaunt_Themes.lua
+IchaTaunt_Categories.lua
 IchaTaunt_DPS.lua
 IchaTaunt.lua

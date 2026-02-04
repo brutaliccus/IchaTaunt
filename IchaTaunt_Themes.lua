@@ -36,8 +36,8 @@ IchaTaunt_Themes = {
                 tile = true, tileSize = 8, edgeSize = 16,
                 insets = { left = 2, right = 2, top = 2, bottom = 2 }
             },
-            bgColor = { 0, 0, 0, 0.5 },
-            panelBgColor = { 0, 0, 0, 0.3 },
+            bgColor = { 0, 0, 0, 1 },  -- Fully opaque like game menus
+            panelBgColor = { 0, 0, 0, 0.9 },  -- Nearly opaque panels
             titleColor = { 1, 0.82, 0 },
         },
     },

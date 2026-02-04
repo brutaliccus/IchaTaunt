@@ -73,13 +73,63 @@ IchaTaunt_SpellData = {
 }
 
 -- Helper functions
+
+-- Get all spells (built-in + custom)
+function IchaTaunt_GetAllSpells()
+    local allSpells = {}
+
+    -- Add built-in spells
+    for id, data in pairs(IchaTaunt_SpellData) do
+        allSpells[id] = data
+    end
+
+    -- Add custom spells from SavedVariables
+    if IchaTauntDB and IchaTauntDB.customSpells then
+        for id, data in pairs(IchaTauntDB.customSpells) do
+            allSpells[id] = data
+        end
+    end
+
+    return allSpells
+end
+
 function IchaTaunt_GetSpellData(spellID)
-    return IchaTaunt_SpellData[spellID]
+    -- Check built-in spells first
+    if IchaTaunt_SpellData[spellID] then
+        return IchaTaunt_SpellData[spellID]
+    end
+
+    -- Check custom spells
+    if IchaTauntDB and IchaTauntDB.customSpells and IchaTauntDB.customSpells[spellID] then
+        return IchaTauntDB.customSpells[spellID]
+    end
+
+    -- Check TrackableSpells (v2.0 - all class cooldowns)
+    if IchaTaunt_TrackableSpells then
+        for class, spells in pairs(IchaTaunt_TrackableSpells) do
+            for _, spell in ipairs(spells) do
+                if spell.id == spellID then
+                    return {
+                        name = spell.name,
+                        cooldown = spell.cooldown,
+                        icon = spell.icon,
+                        classes = { class },
+                        description = spell.category or "Tracked spell"
+                    }
+                end
+            end
+        end
+    end
+
+    return nil
 end
 
 function IchaTaunt_GetSpellsByClass(class)
     local spells = {}
-    for id, data in pairs(IchaTaunt_SpellData) do
+    local allSpells = IchaTaunt_GetAllSpells()
+
+    -- Add spells from main spell database
+    for id, data in pairs(allSpells) do
         for _, spellClass in ipairs(data.classes) do
             if spellClass == class then
                 spells[id] = data
@@ -87,12 +137,30 @@ function IchaTaunt_GetSpellsByClass(class)
             end
         end
     end
+
+    -- Add spells from TrackableSpells (v2.0 - all class cooldowns)
+    if IchaTaunt_TrackableSpells and IchaTaunt_TrackableSpells[class] then
+        for _, spell in ipairs(IchaTaunt_TrackableSpells[class]) do
+            if not spells[spell.id] then  -- Don't override existing entries
+                spells[spell.id] = {
+                    name = spell.name,
+                    cooldown = spell.cooldown,
+                    icon = spell.icon,
+                    classes = { class },
+                    description = spell.category or "Tracked spell"
+                }
+            end
+        end
+    end
+
     return spells
 end
 
 function IchaTaunt_GetSpellByName(name)
-    -- First try exact match
-    for id, data in pairs(IchaTaunt_SpellData) do
+    local allSpells = IchaTaunt_GetAllSpells()
+
+    -- First try exact match in main spell database
+    for id, data in pairs(allSpells) do
         if data.name == name then
             return id, data
         end
@@ -100,16 +168,48 @@ function IchaTaunt_GetSpellByName(name)
 
     -- Try case-insensitive match
     local lowerName = strlower(name)
-    for id, data in pairs(IchaTaunt_SpellData) do
+    for id, data in pairs(allSpells) do
         if strlower(data.name) == lowerName then
             return id, data
         end
     end
 
     -- Try partial match (for spells with rank info like "Mocking Blow(Rank 4)")
-    for id, data in pairs(IchaTaunt_SpellData) do
+    for id, data in pairs(allSpells) do
         if strfind(name, data.name) or strfind(data.name, name) then
             return id, data
+        end
+    end
+
+    -- Also search TrackableSpells for combat log fallback (v2.0)
+    if IchaTaunt_TrackableSpells then
+        for class, spells in pairs(IchaTaunt_TrackableSpells) do
+            for _, spell in ipairs(spells) do
+                if spell.name == name then
+                    -- Convert TrackableSpell format to SpellData format
+                    return spell.id, {
+                        name = spell.name,
+                        cooldown = spell.cooldown,
+                        icon = spell.icon,
+                        classes = { class },
+                        description = spell.category or "Tracked spell"
+                    }
+                end
+            end
+        end
+        -- Try case-insensitive match in TrackableSpells
+        for class, spells in pairs(IchaTaunt_TrackableSpells) do
+            for _, spell in ipairs(spells) do
+                if strlower(spell.name) == lowerName then
+                    return spell.id, {
+                        name = spell.name,
+                        cooldown = spell.cooldown,
+                        icon = spell.icon,
+                        classes = { class },
+                        description = spell.category or "Tracked spell"
+                    }
+                end
+            end
         end
     end
 
@@ -118,7 +218,9 @@ end
 
 function IchaTaunt_GetAllTauntClasses()
     local classes = {}
-    for _, data in pairs(IchaTaunt_SpellData) do
+    local allSpells = IchaTaunt_GetAllSpells()
+
+    for _, data in pairs(allSpells) do
         for _, class in ipairs(data.classes) do
             classes[class] = true
         end
