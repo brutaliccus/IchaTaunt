@@ -128,7 +128,7 @@ function IchaTaunt:SetScale(scale)
 
                 frame:SetScale(scale)
                 frame:ClearAllPoints()
-                frame:SetPoint("CENTER", UIParent, "CENTER", savedX, savedY)
+                frame:SetPoint("TOP", UIParent, "TOP", savedX, savedY)
             end
         end
     elseif self.frame then
@@ -871,6 +871,56 @@ function IchaTaunt:HandleCombatMessage(eventType)
             -- "Playername roars." (Challenging Roar)
             _, _, caster = strfind(arg1, "(.+) roars")
             spell = "Challenging Roar"
+        elseif strfind(arg1, "(.+) gains (.+)%.$") and not strfind(arg1, " from ") then
+            -- "PlayerName gains SpellName." (without "from" clause - direct buff gain)
+            -- This catches defensive cooldowns and self-buffs for OTHER players
+            local playerName, buffName
+            _, _, playerName, buffName = strfind(arg1, "(.+) gains (.+)%.$")
+
+            -- List of trackable buffs that indicate spell usage
+            local trackableBuffs = {
+                ["Challenging Shout"] = true,
+                ["Challenging Roar"] = true,
+                ["Shield Wall"] = true,
+                ["Retaliation"] = true,
+                ["Recklessness"] = true,
+                ["Berserker Rage"] = true,
+                ["Barkskin"] = true,
+                ["Frenzied Regeneration"] = true,
+                ["Enrage"] = true,
+                ["Divine Protection"] = true,
+                ["Divine Shield"] = true,
+                ["Hand of Protection"] = true,
+                ["Hand of Freedom"] = true,
+                ["Ethereal Form"] = true,
+                ["Bloodlust"] = true,
+                ["Feign Death"] = true,
+                ["Rapid Fire"] = true,
+                ["Bestial Wrath"] = true,
+                ["Deterrence"] = true,
+                ["Vanish"] = true,
+                ["Evasion"] = true,
+                ["Sprint"] = true,
+                ["Adrenaline Rush"] = true,
+                ["Blade Flurry"] = true,
+                ["Cold Blood"] = true,
+                ["Preparation"] = true,
+                ["Ice Block"] = true,
+                ["Ice Barrier"] = true,
+                ["Combustion"] = true,
+                ["Arcane Power"] = true,
+                ["Power Infusion"] = true,
+                ["Inner Focus"] = true,
+                ["Vampiric Embrace"] = true,
+            }
+
+            if playerName and buffName and trackableBuffs[buffName] then
+                caster = playerName
+                spell = buffName
+                if IchaTauntDB and IchaTauntDB.debugMode then
+                    self:DebugLog("MATCHED: \"(.+) gains (.+)%.\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+                end
+            end
         elseif strfind(arg1, "You gain (.+)%.") then
             -- Check if it's a self-buff that might indicate spell use
             local buffName
@@ -947,15 +997,20 @@ function IchaTaunt:HandleCombatMessage(eventType)
                 caster = UnitName("player")
                 spell = "Mocking Blow"
             end
-        elseif strfind(arg1, "(.+) gains (.+)%.") then
+        elseif strfind(arg1, "(.+) gains (.+)%.") and not strfind(arg1, " from ") then
             -- "Playername gains Evasion." - another player gained a self-buff
+            -- Exclude "gains X from Y" (mana/energy gains)
             local buffName
             _, _, caster, buffName = strfind(arg1, "(.+) gains (.+)%.")
             -- Check if it's a tracked self-buff spell
             local selfBuffSpells = {
+                ["Challenging Shout"] = true,
+                ["Challenging Roar"] = true,
                 ["Shield Wall"] = true, ["Retaliation"] = true, ["Recklessness"] = true,
                 ["Berserker Rage"] = true, ["Barkskin"] = true, ["Frenzied Regeneration"] = true,
                 ["Enrage"] = true, ["Divine Protection"] = true, ["Divine Shield"] = true,
+                ["Hand of Protection"] = true,
+                ["Hand of Freedom"] = true,
                 ["Ethereal Form"] = true, ["Bloodlust"] = true, ["Feign Death"] = true,
                 ["Rapid Fire"] = true, ["Bestial Wrath"] = true, ["Deterrence"] = true,
                 ["Vanish"] = true, ["Evasion"] = true, ["Sprint"] = true,
@@ -1669,17 +1724,23 @@ local function SnapFrameToOthers(draggedFrame, allFrames, threshold)
         if not currentX or not currentY then return end
 
         local screenCenterX = GetScreenWidth() / 2
-        local screenCenterY = GetScreenHeight() / 2
+        local screenTop = GetScreenHeight()
 
         if snapX then
             currentX = snapX + (draggedFrame:GetWidth() / 2)
         end
+
+        local topY
         if snapY then
-            currentY = snapY - (draggedFrame:GetHeight() / 2)
+            topY = snapY
+        else
+            -- Calculate current top position
+            local height = draggedFrame:GetHeight()
+            topY = currentY + (height / 2)
         end
 
         draggedFrame:ClearAllPoints()
-        draggedFrame:SetPoint("CENTER", UIParent, "CENTER", currentX - screenCenterX, currentY - screenCenterY)
+        draggedFrame:SetPoint("TOP", UIParent, "TOP", currentX - screenCenterX, -(screenTop - topY))
     end
 end
 
@@ -1701,18 +1762,18 @@ local function AdjustSnappedFrames(changedFrame, allFrames, threshold)
                 if frameTop and frameHeight then
                     -- Calculate new Y position to maintain the snap
                     local screenCenterX = GetScreenWidth() / 2
-                    local screenCenterY = GetScreenHeight() / 2
+                    local screenTop = GetScreenHeight()
 
                     local frameX = frame:GetCenter()
-                    local newFrameY = changedBottom - (frameHeight / 2)
+                    local newTopY = changedBottom
 
                     frame:ClearAllPoints()
-                    frame:SetPoint("CENTER", UIParent, "CENTER", frameX - screenCenterX, newFrameY - screenCenterY)
+                    frame:SetPoint("TOP", UIParent, "TOP", frameX - screenCenterX, -(screenTop - newTopY))
 
                     -- Save the new position
                     if frame.category and IchaTauntDB and IchaTauntDB.categories then
                         IchaTauntDB.categories[frame.category].position.x = frameX - screenCenterX
-                        IchaTauntDB.categories[frame.category].position.y = newFrameY - screenCenterY
+                        IchaTauntDB.categories[frame.category].position.y = -(screenTop - newTopY)
                     end
 
                     -- Recursively adjust frames below this one
@@ -1755,7 +1816,7 @@ function IchaTaunt:CreateCategoryFrame(category)
     end
 
     f:ClearAllPoints()
-    f:SetPoint("CENTER", UIParent, "CENTER", relativeX, relativeY)
+    f:SetPoint("TOP", UIParent, "TOP", relativeX, relativeY)
 
     -- Make it draggable with snap
     f:SetMovable(true)
@@ -1779,7 +1840,10 @@ function IchaTaunt:CreateCategoryFrame(category)
             for _, groupFrame in ipairs(snapGroup) do
                 local gx, gy = groupFrame:GetCenter()
                 if gx and gy then
-                    this.dragStartPositions[groupFrame] = { x = gx, y = gy }
+                    -- Calculate TOP position from center
+                    local height = groupFrame:GetHeight()
+                    local topY = gy + (height / 2)
+                    this.dragStartPositions[groupFrame] = { x = gx, topY = topY }
                 end
             end
 
@@ -1789,11 +1853,46 @@ function IchaTaunt:CreateCategoryFrame(category)
             this.dragStartMouse = { x = mouseX / uiScale, y = mouseY / uiScale }
 
             this:StartMoving()
+
+            -- Enable OnUpdate to move snapped frames in real-time during drag
+            this.isDragging = true
+        end
+    end)
+
+    -- OnUpdate handler for real-time snapped frame movement during drag
+    f:SetScript("OnUpdate", function()
+        if not this.isDragging or not this.dragStartPositions or not this.dragStartMouse then return end
+
+        -- Get current mouse position
+        local mouseX, mouseY = GetCursorPosition()
+        local uiScale = UIParent:GetEffectiveScale()
+        local currentMouseX = mouseX / uiScale
+        local currentMouseY = mouseY / uiScale
+
+        -- Calculate delta from drag start
+        local deltaX = currentMouseX - this.dragStartMouse.x
+        local deltaY = currentMouseY - this.dragStartMouse.y
+
+        -- Move all frames in the snap group by the same delta
+        for groupFrame, startPos in pairs(this.dragStartPositions) do
+            if groupFrame ~= this then  -- Skip the dragged frame (it's moving itself)
+                local screenCenterX = GetScreenWidth() / 2
+                local screenTop = GetScreenHeight()
+
+                local newX = startPos.x + deltaX
+                local newTopY = startPos.topY + deltaY
+
+                groupFrame:ClearAllPoints()
+                groupFrame:SetPoint("TOP", UIParent, "TOP", newX - screenCenterX, -(screenTop - newTopY))
+            end
         end
     end)
 
     f:SetScript("OnDragStop", function()
         this:StopMovingOrSizing()
+
+        -- Disable OnUpdate dragging
+        this.isDragging = false
 
         -- Calculate how much this frame moved
         local allFrames = {}
@@ -1814,22 +1913,19 @@ function IchaTaunt:CreateCategoryFrame(category)
             local deltaX = currentMouseX - this.dragStartMouse.x
             local deltaY = currentMouseY - this.dragStartMouse.y
 
-            -- Move all frames in the snap group by the same delta
+            -- Save positions for all frames in the snap group
             for groupFrame, startPos in pairs(this.dragStartPositions) do
-                if groupFrame ~= this then  -- Skip the dragged frame (already moved)
+                if groupFrame ~= this then  -- Skip the dragged frame (will be saved below)
                     local screenCenterX = GetScreenWidth() / 2
-                    local screenCenterY = GetScreenHeight() / 2
+                    local screenTop = GetScreenHeight()
 
                     local newX = startPos.x + deltaX
-                    local newY = startPos.y + deltaY
-
-                    groupFrame:ClearAllPoints()
-                    groupFrame:SetPoint("CENTER", UIParent, "CENTER", newX - screenCenterX, newY - screenCenterY)
+                    local newTopY = startPos.topY + deltaY
 
                     -- Save position for this frame
                     if groupFrame.category then
                         IchaTauntDB.categories[groupFrame.category].position.x = newX - screenCenterX
-                        IchaTauntDB.categories[groupFrame.category].position.y = newY - screenCenterY
+                        IchaTauntDB.categories[groupFrame.category].position.y = -(screenTop - newTopY)
                     end
                 end
             end
@@ -1842,14 +1938,17 @@ function IchaTaunt:CreateCategoryFrame(category)
         -- Try to snap to other category frames
         SnapFrameToOthers(this, allFrames, SNAP_THRESHOLD)
 
-        -- Save position relative to screen center for the dragged frame
+        -- Save position using TOP anchor for the dragged frame
         local frameX, frameY = this:GetCenter()
         if frameX and frameY then
             local screenCenterX = GetScreenWidth() / 2
-            local screenCenterY = GetScreenHeight() / 2
+            local screenTop = GetScreenHeight()
+
+            local height = this:GetHeight()
+            local topY = frameY + (height / 2)
 
             local relX = frameX - screenCenterX
-            local relY = frameY - screenCenterY
+            local relY = -(screenTop - topY)
 
             IchaTauntDB.categories[category].position.x = relX
             IchaTauntDB.categories[category].position.y = relY
@@ -2575,18 +2674,17 @@ function IchaTaunt:RepositionLinkedFrames(changedFrame)
                     if math.abs(verticalGap) < SNAP_THRESHOLD and otherY < changedY then
                         -- This frame is snapped below - reposition it to maintain the gap
                         local screenCenterX = GetScreenWidth() / 2
-                        local screenCenterY = GetScreenHeight() / 2
+                        local screenTop = GetScreenHeight()
 
                         local newOtherTop = changedBottom
-                        local newOtherY = newOtherTop - (otherHeight / 2)
 
                         otherFrame:ClearAllPoints()
-                        otherFrame:SetPoint("CENTER", UIParent, "CENTER", otherX - screenCenterX, newOtherY - screenCenterY)
+                        otherFrame:SetPoint("TOP", UIParent, "TOP", otherX - screenCenterX, -(screenTop - newOtherTop))
 
                         -- Save the new position
                         if otherFrame.category and IchaTauntDB.categories[otherFrame.category] then
                             IchaTauntDB.categories[otherFrame.category].position.x = otherX - screenCenterX
-                            IchaTauntDB.categories[otherFrame.category].position.y = newOtherY - screenCenterY
+                            IchaTauntDB.categories[otherFrame.category].position.y = -(screenTop - newOtherTop)
                         end
 
                         -- Recursively reposition frames below this one
@@ -4285,7 +4383,7 @@ function IchaTaunt:CreateOptionsMenu()
                 if frame then
                     local catData = IchaTauntDB.categories[category]
                     frame:ClearAllPoints()
-                    frame:SetPoint("CENTER", UIParent, "CENTER", catData.position.x, catData.position.y)
+                    frame:SetPoint("TOP", UIParent, "TOP", catData.position.x, catData.position.y)
                 end
             end
         elseif IchaTaunt.frame then
@@ -5721,7 +5819,7 @@ SlashCmdList["ICHATAUNT"] = function(msg)
                 if frame then
                     local catData = IchaTauntDB.categories[category]
                     frame:ClearAllPoints()
-                    frame:SetPoint("CENTER", UIParent, "CENTER", catData.position.x, catData.position.y)
+                    frame:SetPoint("TOP", UIParent, "TOP", catData.position.x, catData.position.y)
                 end
             end
             print("IchaTaunt: All category positions reset to screen center")
