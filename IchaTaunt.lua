@@ -59,19 +59,33 @@ end
 
 -- Apply theme to tracker frame
 function IchaTaunt:ApplyTrackerTheme()
-    if not self.frame then return end
+    if not self.categoryFrames and not self.frame then return end
 
     local theme = self:GetTheme()
     local t = theme.tracker
 
-    -- Apply backdrop (only show when unlocked)
-    if not self.locked then
-        self.frame:SetBackdrop(t.backdrop)
-        self.frame:SetBackdropColor(unpack(t.bgColor))
-        self.frame:SetBackdropBorderColor(unpack(t.borderColor))
-    else
-        -- Hide backdrop when locked - show only content
-        self.frame:SetBackdrop(nil)
+    -- Apply backdrop to all category frames
+    if self.categoryFrames then
+        for _, frame in pairs(self.categoryFrames) do
+            if frame then
+                if not self.locked then
+                    frame:SetBackdrop(t.backdrop)
+                    frame:SetBackdropColor(unpack(t.bgColor))
+                    frame:SetBackdropBorderColor(unpack(t.borderColor))
+                else
+                    frame:SetBackdrop(nil)
+                end
+            end
+        end
+    elseif self.frame then
+        -- Backward compatibility
+        if not self.locked then
+            self.frame:SetBackdrop(t.backdrop)
+            self.frame:SetBackdropColor(unpack(t.bgColor))
+            self.frame:SetBackdropBorderColor(unpack(t.borderColor))
+        else
+            self.frame:SetBackdrop(nil)
+        end
     end
 
     -- Update taunter bars if they exist
@@ -104,16 +118,25 @@ function IchaTaunt:SetScale(scale)
     if scale < 0.5 then scale = 0.5 end
     if scale > 2.0 then scale = 2.0 end
 
-    if self.frame then
-        -- Get current saved position (relative to screen center, already in screen coordinates)
+    if self.categoryFrames then
+        -- Scale all category frames and maintain their positions
+        for category, frame in pairs(self.categoryFrames) do
+            if frame then
+                local catData = IchaTauntDB.categories[category]
+                local savedX = catData.position.x or 0
+                local savedY = catData.position.y or 0
+
+                frame:SetScale(scale)
+                frame:ClearAllPoints()
+                frame:SetPoint("CENTER", UIParent, "CENTER", savedX, savedY)
+            end
+        end
+    elseif self.frame then
+        -- Backward compatibility: single frame
         local savedX = IchaTauntDB.position.x or 0
         local savedY = IchaTauntDB.position.y or 0
-        
-        -- Apply new scale
+
         self.frame:SetScale(scale)
-        
-        -- Keep the same position (saved position is already in screen coordinates)
-        -- No need to adjust - the position stays the same visually
         self.frame:ClearAllPoints()
         self.frame:SetPoint("CENTER", UIParent, "CENTER", savedX, savedY)
     end
@@ -125,8 +148,16 @@ end
 
 -- Apply saved scale to tracker
 function IchaTaunt:ApplyScale()
-    if self.frame and IchaTauntDB.scale then
-        self.frame:SetScale(IchaTauntDB.scale)
+    if IchaTauntDB.scale then
+        if self.categoryFrames then
+            for _, frame in pairs(self.categoryFrames) do
+                if frame then
+                    frame:SetScale(IchaTauntDB.scale)
+                end
+            end
+        elseif self.frame then
+            self.frame:SetScale(IchaTauntDB.scale)
+        end
     end
 end
 
@@ -185,6 +216,34 @@ IchaTaunt:RegisterEvent("PARTY_MEMBERS_CHANGED")
 IchaTaunt:RegisterEvent("CHAT_MSG_ADDON")
 
 IchaTaunt:SetScript("OnEvent", function()
+    -- Debug: Show ALL events when debugMode is enabled (except spam combat log events)
+    -- Combat log events are logged in HandleCombatMessage with more detail
+    local spamEvents = {
+        ["RAID_ROSTER_UPDATE"] = true,
+        ["PARTY_MEMBERS_CHANGED"] = true,
+        ["CHAT_MSG_ADDON"] = true,
+        ["CHAT_MSG_SPELL_FRIENDLYPLAYER_BUFF"] = true,
+        ["CHAT_MSG_SPELL_PARTY_BUFF"] = true,
+        ["CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS"] = true,
+        ["CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_CREATURE_VS_CREATURE_BUFF"] = true,
+        ["CHAT_MSG_SPELL_FRIENDLYPLAYER_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_PARTY_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_SELF_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_SELF_BUFF"] = true,
+        ["CHAT_MSG_COMBAT_SELF_HITS"] = true,
+        ["CHAT_MSG_COMBAT_SELF_MISSES"] = true,
+        ["CHAT_MSG_COMBAT_CREATURE_VS_SELF"] = true,
+        ["CHAT_MSG_SPELL_CREATURE_VS_SELF_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_DAMAGESHIELDS_ON_SELF"] = true,
+        ["CHAT_MSG_SPELL_PERIODIC_SELF_DAMAGE"] = true,
+        ["CHAT_MSG_SPELL_AURA_GONE_SELF"] = true,
+        ["CHAT_MSG_SPELL_CREATURE_VS_CREATURE_DAMAGE"] = true,
+    }
+    if IchaTauntDB and IchaTauntDB.debugMode and not spamEvents[event] then
+        DEFAULT_CHAT_FRAME:AddMessage("[IchaTaunt Event] " .. tostring(event))
+    end
+
     if event == "PLAYER_LOGIN" then
         IchaTaunt:Initialize()
     elseif event == "CHAT_MSG_SPELL_SELF_DAMAGE" or event == "CHAT_MSG_SPELL_SELF_BUFF" or
@@ -196,7 +255,17 @@ IchaTaunt:SetScript("OnEvent", function()
            event == "CHAT_MSG_SPELL_PERIODIC_SELF_BUFFS" or event == "CHAT_MSG_SPELL_FRIENDLYPLAYER_BUFF" or
            event == "CHAT_MSG_SPELL_PARTY_BUFF" or event == "CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE" or
            event == "CHAT_MSG_SPELL_CREATURE_VS_CREATURE_BUFF" then
-        IchaTaunt:HandleCombatMessage(event)
+        -- Debug logging moved into HandleCombatMessage after filtering
+        local success, err = pcall(function()
+            IchaTaunt:HandleCombatMessage(event)
+        end)
+        if not success then
+            DEFAULT_CHAT_FRAME:AddMessage("[IchaTaunt ERROR] HandleCombatMessage failed: " .. tostring(err))
+        end
+    -- REMOVED: This was spamming chat
+    -- elseif IchaTauntDB and IchaTauntDB.debugMode and strfind(event, "CHAT_MSG") then
+    --     -- Catch any CHAT_MSG events we're not handling
+    --     DEFAULT_CHAT_FRAME:AddMessage("[IchaTaunt] Unhandled CHAT_MSG event: " .. tostring(event))
     elseif event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" then
         IchaTaunt:RefreshRoster()
         -- Request sync when joining a group
@@ -239,9 +308,9 @@ end)
 
 function IchaTaunt:Initialize()
     DEFAULT_CHAT_FRAME:AddMessage("==============================================")
-    DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt v2.0 LOADING...")
+    DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt v2.0 - Raid Cooldown Tracker")
     DEFAULT_CHAT_FRAME:AddMessage("==============================================")
-    print("IchaTaunt v2.0 loaded. Type /it for config, /it help for commands.")
+    DEFAULT_CHAT_FRAME:AddMessage("Type /it for config, /it help for commands")
     -- Ensure IchaTauntDB is properly initialized
     if not IchaTauntDB then
         IchaTauntDB = {
@@ -293,6 +362,17 @@ function IchaTaunt:Initialize()
     self.taunterBars = {}
     self.locked = IchaTauntDB.locked or false
 
+    -- Also populate self.taunters from all category members for combat log detection
+    if IchaTaunt_Categories and IchaTauntDB.categories then
+        for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+            if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members then
+                for memberName, _ in pairs(IchaTauntDB.categories[cat].members) do
+                    self.taunters[memberName] = true
+                end
+            end
+        end
+    end
+
     self:CreateUI()
 
     -- Debug: Show what we have on login
@@ -339,6 +419,11 @@ function IchaTaunt:Initialize()
 
     -- Helper: schedule broadcast for a taunt spell (same path as Roar/Shout/Mocking Blow)
     local function scheduleTauntBroadcast(spellID)
+        -- Skip if broadcasts are disabled (testmode)
+        if IchaTauntDB.disableBroadcast then
+            return
+        end
+
         if not spellID or not IchaTaunt_GetSpellData(spellID) then return end
         local f = self.broadcastAfterCastFrame
         if not f then
@@ -383,6 +468,9 @@ function IchaTaunt:Initialize()
     if not self.cooldownPollerFrame then
         self.cooldownPollerFrame = CreateFrame("Frame")
         self.cooldownPollerFrame:SetScript("OnUpdate", function()
+            -- Skip cooldown polling if in testmode (only use combat log)
+            if IchaTauntDB and IchaTauntDB.disableBroadcast then return end
+
             IchaTaunt._cooldownPollerElapsed = IchaTaunt._cooldownPollerElapsed + (arg1 or 0)
             if IchaTaunt._cooldownPollerElapsed < 0.15 then return end
             IchaTaunt._cooldownPollerElapsed = 0
@@ -441,11 +529,30 @@ function IchaTaunt:Initialize()
 end
 
 function IchaTaunt:RefreshRoster()
-    -- If "only show in raid" is on and we're not in a raid, hide tracker
-    if IchaTauntDB.showInRaidOnly and (not GetNumRaidMembers or GetNumRaidMembers() == 0) then
-        if self.frame then
+    -- Helper function to hide/show all category frames
+    local function HideAllFrames()
+        if self.categoryFrames then
+            for _, frame in pairs(self.categoryFrames) do
+                if frame then frame:Hide() end
+            end
+        elseif self.frame then
             self.frame:Hide()
         end
+    end
+
+    local function ShowAllFrames()
+        if self.categoryFrames then
+            for _, frame in pairs(self.categoryFrames) do
+                if frame then frame:Show() end
+            end
+        elseif self.frame then
+            self.frame:Show()
+        end
+    end
+
+    -- If "only show in raid" is on and we're not in a raid, hide tracker
+    if IchaTauntDB.showInRaidOnly and (not GetNumRaidMembers or GetNumRaidMembers() == 0) then
+        HideAllFrames()
         return
     end
 
@@ -498,11 +605,9 @@ function IchaTaunt:RefreshRoster()
             end
         end
     end
-    
+
     if hasTaunters then
-        if self.frame then
-            self.frame:Show()
-        end
+        ShowAllFrames()
         if needsRebuild then
             self:RebuildList()
         end
@@ -515,29 +620,69 @@ function IchaTaunt:RefreshRoster()
                 break
             end
         end
-        
+
         if hasConfiguredTaunters or self.forceVisible then
             -- Show if we have configured taunters or force visible
-            if self.frame then
-                self.frame:Show()
-            end
+            ShowAllFrames()
             if needsRebuild then
                 self:RebuildList()
             end
         else
             -- Only hide if no taunters configured AND not force visible
             if not self.forceVisible then
-                if self.frame then
-                    self.frame:Hide()
-                end
+                HideAllFrames()
                 return
             else
-                if self.frame then
-                    self.frame:Show()
-                end
+                ShowAllFrames()
             end
         end
     end
+end
+
+-- Debug logging function
+function IchaTaunt:DebugLog(msg)
+    if not IchaTauntDB then return end
+    if not IchaTauntDB.debugLog then
+        IchaTauntDB.debugLog = {}
+    end
+    -- Keep last 500 messages
+    if table.getn(IchaTauntDB.debugLog) > 500 then
+        table.remove(IchaTauntDB.debugLog, 1)
+    end
+    table.insert(IchaTauntDB.debugLog, date("%H:%M:%S") .. " " .. msg)
+end
+
+-- Clear all tracked members (called by /clearall and CLEARALL broadcast)
+function IchaTaunt:ClearAllTrackedMembers()
+    local taunterCount = 0
+    local categoryCount = 0
+
+    -- Clear taunters list
+    if IchaTauntDB.taunters then
+        for name, _ in pairs(IchaTauntDB.taunters) do
+            taunterCount = taunterCount + 1
+        end
+        IchaTauntDB.taunters = {}
+    end
+
+    -- Clear all category members
+    if IchaTaunt_Categories and IchaTauntDB.categories then
+        for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+            if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members then
+                for name, _ in pairs(IchaTauntDB.categories[cat].members) do
+                    categoryCount = categoryCount + 1
+                end
+                IchaTauntDB.categories[cat].members = {}
+            end
+        end
+    end
+
+    -- Clear self.taunters runtime table
+    if self.taunters then
+        self.taunters = {}
+    end
+
+    return taunterCount, categoryCount
 end
 
 function IchaTaunt:HandleCombatMessage(eventType)
@@ -545,22 +690,27 @@ function IchaTaunt:HandleCombatMessage(eventType)
     if arg1 then
         local caster = nil
         local spell = nil
-        
-        -- Debug: Print all combat messages to see what we're getting
-        if IchaTauntDB.debugMode then
-            print("[IchaTaunt Debug] " .. (eventType or "Unknown") .. ": " .. arg1)
+
+        -- Debug log the raw message
+        if IchaTauntDB and IchaTauntDB.debugMode then
+            self:DebugLog("=== EVENT: " .. tostring(eventType) .. " ===")
+            self:DebugLog("RAW: " .. tostring(arg1))
         end
-        
-        -- Super debug mode - show ALL events
-        if IchaTauntDB.debugAllEvents then
-            print("[IchaTaunt ALL] " .. (eventType or "Unknown") .. ": " .. arg1)
-        end
-        
+
         -- Look for various taunt spell cast patterns
         if strfind(arg1, "(.+) casts (.+)%.") then
             _, _, caster, spell = strfind(arg1, "(.+) casts (.+)%.")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: '(.+) casts (.+)%.' -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
         elseif strfind(arg1, "(.+) begins to cast (.+)%.") then
             _, _, caster, spell = strfind(arg1, "(.+) begins to cast (.+)%.")
+        elseif strfind(arg1, "(.+) begins to perform (.+)%.") then
+            -- "Playername begins to perform Spell."
+            _, _, caster, spell = strfind(arg1, "(.+) begins to perform (.+)%.")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) begins to perform (.+)%.\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
         elseif strfind(arg1, "(.+) performs (.+) on (.+)%.") then
             -- "Ichabaddie performs Earthshaker Slam on Hecklefang Hyena."
             local target
@@ -571,6 +721,10 @@ function IchaTaunt:HandleCombatMessage(eventType)
             -- "You cast Earthshaker Slam."
             caster = UnitName("player")
             _, _, spell = strfind(arg1, "You cast (.+)%.")
+        elseif strfind(arg1, "You begin to perform (.+)%.") then
+            -- "You begin to perform Spell."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "You begin to perform (.+)%.")
         elseif strfind(arg1, "You perform (.+) on (.+)%.") then
             -- "You perform Earthshaker Slam on Hecklefang Hyena."
             caster = UnitName("player")
@@ -587,6 +741,18 @@ function IchaTaunt:HandleCombatMessage(eventType)
             -- "Your Earthshaker Slam was resisted by Barrens Giraffe."
             caster = UnitName("player")
             _, _, spell = strfind(arg1, "Your (.+) was resisted")
+        elseif strfind(arg1, "Your (.+) was dodged") then
+            -- "Your Spell was dodged."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "Your (.-) was dodged")
+        elseif strfind(arg1, "Your (.+) was parried") then
+            -- "Your Spell was parried."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "Your (.-) was parried")
+        elseif strfind(arg1, "Your (.+) was blocked") then
+            -- "Your Spell was blocked."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "Your (.-) was blocked")
         elseif strfind(arg1, "Your (.+) crits") then
             -- "Your Earthshaker Slam crits Mob for 456."
             caster = UnitName("player")
@@ -595,11 +761,48 @@ function IchaTaunt:HandleCombatMessage(eventType)
             -- "Your Earthshaker Slam misses Mob."
             caster = UnitName("player")
             _, _, spell = strfind(arg1, "Your (.+) misses")
-        elseif strfind(arg1, "(.+)'s (.+) was resisted") then
-            -- "Playername's Earthshaker Slam was resisted by Mob."
-            _, _, caster, spell = strfind(arg1, "(.+)'s (.+) was resisted")
-        elseif strfind(arg1, "(.+)'s (.+) hits") then
-            _, _, caster, spell = strfind(arg1, "(.+)'s (.+) hits")
+        elseif strfind(arg1, "(.+) 's (.-) was resisted") then
+            -- "Playername 's Earthshaker Slam was resisted by Mob." (note space before 's)
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) was resisted")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) was resisted\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) was dodged") then
+            -- "Playername 's Execute was dodged by Target."
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) was dodged")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) was dodged\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) was parried") then
+            -- "Playername 's Spell was parried."
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) was parried")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) was parried\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) was blocked") then
+            -- "Playername 's Spell was blocked."
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) was blocked")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) was blocked\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) hits") then
+            -- "Playername 's Spellname hits Target" (note space before 's)
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) hits")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) hits\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) crits") then
+            -- "Playername 's Shadowburn crits Target for X damage." (note space before 's)
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) crits")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) crits\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) misses") then
+            -- "Playername 's Taunt misses Target." (note space before 's)
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) misses")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) misses\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
         elseif strfind(arg1, "(.+) hits .+ with (.+)%.") then
             _, _, caster, spell = strfind(arg1, "(.+) hits .+ with (.+)%.")
         elseif strfind(arg1, "(.+) resists your (.+)") then
@@ -616,6 +819,42 @@ function IchaTaunt:HandleCombatMessage(eventType)
         elseif strfind(arg1, "(.+) uses (.+)%.") then
             -- "Playername uses Challenging Shout."
             _, _, caster, spell = strfind(arg1, "(.+) uses (.+)%.")
+        elseif strfind(arg1, "(.+) 's (.+) fails%.") then
+            -- "Playername 's Spell fails." (spell failed due to conditions)
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) fails")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) fails\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) 's (.-) is interrupted") then
+            -- "Playername 's Spell is interrupted."
+            _, _, caster, spell = strfind(arg1, "(.+) 's (.-) is interrupted")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) 's (.-) is interrupted\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "(.+) interrupts (.+)'s .+ with (.+)%.") then
+            -- "Rogue interrupts Caster's Spell with Kick."
+            _, _, caster, spell = strfind(arg1, "(.+) interrupts .+ with (.+)%.")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) interrupts .+ with (.+)%.\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "You interrupt .+ with (.+)%.") then
+            -- "You interrupt Caster's Spell with Kick."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "You interrupt .+ with (.+)%.")
+        elseif strfind(arg1, "Your (.+) fails%.") then
+            -- "Your Spell fails."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "Your (.-) fails")
+        elseif strfind(arg1, "(.+) casts (.+) on (.+)%.") then
+            -- "Playername casts Spell on Target." (targeted spell cast)
+            _, _, caster, spell = strfind(arg1, "(.+) casts (.-) on")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) casts (.-) on\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
+            end
+        elseif strfind(arg1, "You cast (.+) on (.+)%.") then
+            -- "You cast Spell on Target."
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "You cast (.-) on")
         elseif strfind(arg1, "You shout%.") or strfind(arg1, "You shout!") then
             -- "You shout." (Challenging Shout)
             caster = UnitName("player")
@@ -738,14 +977,39 @@ function IchaTaunt:HandleCombatMessage(eventType)
                 _, _, caster = strfind(caster, "([^%-]+)")
             end
 
-            -- Check if it's a taunt spell by name
+            -- Check if caster is in raid/party (filter out random people nearby)
+            local isInGroup = self:IsPlayerInGroup(caster)
+
+            -- Only show debug/logs for players in your group
+            if not isInGroup then
+                if IchaTauntDB and IchaTauntDB.debugMode then
+                    self:DebugLog("Skipped - not in group")
+                end
+                return
+            end
+
+            -- Debug log: Group member detection
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("In group: YES")
+                self:DebugLog("After cleanup - caster: " .. tostring(caster) .. ", spell: " .. tostring(spell))
+            end
+
+            -- Check if it's a tracked spell by name
             local spellID, spellData = IchaTaunt_GetSpellByName(spell)
+
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                if spellID and spellData then
+                    self:DebugLog("Spell FOUND in DB: ID=" .. spellID .. ", Name=" .. spellData.name)
+                else
+                    self:DebugLog("Spell NOT in database: " .. tostring(spell))
+                end
+            end
+
             if spellID and spellData then
                 -- Check if this was a resist
                 local wasResisted = strfind(arg1, "was resisted") or strfind(arg1, "resists")
 
                 -- Always process if caster is tracked OR if caster is the local player
-                -- (local player should always broadcast even if not in their own taunter list)
                 local isLocalPlayer = (caster == UnitName("player"))
                 local isTracked = IchaTauntDB.taunters[caster] or self.taunters[caster]
 
@@ -755,50 +1019,70 @@ function IchaTaunt:HandleCombatMessage(eventType)
                     for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
                         if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members and IchaTauntDB.categories[cat].members[caster] then
                             inAnyCategory = true
+                            if IchaTauntDB and IchaTauntDB.debugMode then
+                                self:DebugLog("Caster found in category: " .. cat)
+                            end
                             break
                         end
                     end
                 end
 
+                if IchaTauntDB and IchaTauntDB.debugMode then
+                    self:DebugLog("isLocalPlayer: " .. tostring(isLocalPlayer))
+                    self:DebugLog("isTracked: " .. tostring(isTracked))
+                    self:DebugLog("inAnyCategory: " .. tostring(inAnyCategory))
+                end
+
                 if isTracked or isLocalPlayer or inAnyCategory then
                     -- Check if we have a recent broadcast sync for this player/spell (priority: broadcast > combat log)
-                    -- If the caster has the addon and is broadcasting, we don't need combat log fallback
                     local casterNormalized = self:NormalizePlayerName(caster)
                     local hasBroadcast = false
                     if not isLocalPlayer and self.lastSyncReceived and self.lastSyncReceived[casterNormalized] then
                         local lastSync = self.lastSyncReceived[casterNormalized][spellID]
                         if lastSync and (GetTime() - lastSync) < 5 then
                             hasBroadcast = true
-                            if IchaTauntDB.debugMode then
-                                print("[IchaTaunt Debug] Skipping combat log for " .. caster .. "'s " .. spell .. " - recent broadcast sync")
-                            end
                         end
+                    end
+
+                    if IchaTauntDB and IchaTauntDB.debugMode then
+                        self:DebugLog("hasBroadcast: " .. tostring(hasBroadcast))
                     end
 
                     -- Only process combat log if this is the local player (always) OR no recent broadcast (fallback for non-addon users)
                     if isLocalPlayer or not hasBroadcast then
-                        if IchaTauntDB.debugMode then
-                            local source = isLocalPlayer and " (local player)" or " (combat log fallback)"
-                            print("[IchaTaunt Debug] " .. caster .. " used spell: " .. spell .. source)
+                        if IchaTauntDB and IchaTauntDB.debugMode then
+                            self:DebugLog("TRIGGERING COOLDOWN: " .. caster .. " - " .. spellData.name)
                         end
-
-                        if wasResisted then
-                            if IchaTauntDB.debugMode then
-                                print("[IchaTaunt] " .. caster .. "'s " .. spell .. " was RESISTED - starting " .. spellData.cooldown .. "s cooldown")
-                            end
-                            self:StartCooldownFor(caster, spellID, true) -- true = resisted
-                        else
-                            if IchaTauntDB.debugMode then
-                                print("[IchaTaunt] " .. caster .. " used " .. spell .. " - starting " .. spellData.cooldown .. "s cooldown")
-                            end
-                            self:StartCooldownFor(caster, spellID, false) -- false = not resisted
-                            -- Clear any existing resist status for this player since they had a successful taunt
+                        self:StartCooldownFor(caster, spellID, wasResisted, nil) -- nil = from combat log
+                        -- Clear any existing resist status for successful spell
+                        if not wasResisted then
                             self:ClearResistFor(caster)
                         end
+                    else
+                        if IchaTauntDB and IchaTauntDB.debugMode then
+                            self:DebugLog("Skipped - broadcast already handled it")
+                        end
+                    end
+                else
+                    if IchaTauntDB and IchaTauntDB.debugMode then
+                        self:DebugLog("Skipped - player not tracked")
                     end
                 end
-            elseif IchaTauntDB.debugMode then
-                print("[IchaTaunt Debug] Unknown spell: " .. spell)
+            else
+                if IchaTauntDB and IchaTauntDB.debugMode then
+                    self:DebugLog("Skipped - spell not in database")
+                end
+            end
+        else
+            -- Debug: Show parsing failure
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                if not caster and not spell then
+                    self:DebugLog("PARSE FAILED - no caster/spell")
+                elseif not spell then
+                    self:DebugLog("PARSE FAILED - no spell (caster: " .. tostring(caster) .. ")")
+                elseif not caster then
+                    self:DebugLog("PARSE FAILED - no caster (spell: " .. tostring(spell) .. ")")
+                end
             end
         end
     end
@@ -810,14 +1094,43 @@ end
 
 function IchaTaunt:StartCooldownFor(name, spellID, wasResisted, fromSync, remainingSec)
     local spellData = IchaTaunt_GetSpellData(spellID)
-    if not spellData then return end
+    if not spellData then
+        return
+    end
 
     -- Use remaining duration when provided (e.g. from cooldown poller after reload), else full cooldown
     local duration = (remainingSec and remainingSec > 0) and remainingSec or spellData.cooldown
 
+    -- Determine the source of this cooldown
+    local source = "UNKNOWN"
+    if fromSync == true then
+        source = "BROADCAST SYNC"
+    elseif remainingSec and remainingSec > 0 then
+        source = "RELOAD RESTORE"
+    elseif fromSync == false then
+        source = "SPELL HOOK"
+    elseif fromSync == nil then
+        source = "COMBAT LOG"
+    end
+
+    -- ALWAYS print the cooldown source so user knows which method is working
+    DEFAULT_CHAT_FRAME:AddMessage("========================================")
+    DEFAULT_CHAT_FRAME:AddMessage("COOLDOWN DETECTED:")
+    DEFAULT_CHAT_FRAME:AddMessage("  Method: [" .. source .. "]")
+    DEFAULT_CHAT_FRAME:AddMessage("  Player: " .. name)
+    DEFAULT_CHAT_FRAME:AddMessage("  Spell: " .. spellData.name)
+    DEFAULT_CHAT_FRAME:AddMessage("  Duration: " .. duration .. "s")
+    if wasResisted then
+        DEFAULT_CHAT_FRAME:AddMessage("  Status: RESISTED")
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("========================================")
+
     -- Broadcast cooldown to raid FIRST if this is the local player and not from sync
     -- Broadcast remaining seconds so others show correct time (important for long CDs after reload)
     if not fromSync and name == UnitName("player") then
+        if IchaTauntDB.debugMode then
+            print("[IchaTaunt Debug] This is local player - attempting broadcast...")
+        end
         IchaTaunt_Print("StartCooldownFor (local player) - calling BroadcastCooldown")
         self:BroadcastCooldown(name, spellID, duration, wasResisted)
     end
@@ -861,6 +1174,14 @@ end
 
 -- Broadcast cooldown usage to raid members
 function IchaTaunt:BroadcastCooldown(playerName, spellID, cooldown, wasResisted)
+    -- Check if broadcasts are disabled for testing
+    if IchaTauntDB.disableBroadcast then
+        if IchaTauntDB.debugMode then
+            print("[IchaTaunt Debug] Broadcast DISABLED - combat log will handle this spell")
+        end
+        return
+    end
+
     -- Support both 1.12 (no arg) and Turtle WoW (sometimes "player" arg) group APIs
     local raidCount = 0
     local partyCount = 0
@@ -1218,113 +1539,362 @@ function IchaTaunt:GetClassColor(class)
     return colors[class] or {1, 1, 1} -- Default to white
 end
 
--- UI Creation - Clean Taunt Tracker
-function IchaTaunt:CreateUI()
-    if self.frame then return end
+-- Snap detection threshold (pixels)
+local SNAP_THRESHOLD = 10
 
+-- Helper function to check if two values are within snap range
+local function IsNearby(value1, value2, threshold)
+    return math.abs(value1 - value2) < threshold
+end
+
+-- Helper function to snap frame edges during drag
+-- Detect which frames are snapped together
+local function DetectSnapRelationships(allFrames, threshold)
+    local relationships = {}  -- [frame] = { snappedTo = frame, edge = "top"/"bottom"/"left"/"right" }
+
+    for _, frame in ipairs(allFrames) do
+        if frame:IsVisible() then
+            local fLeft = frame:GetLeft()
+            local fRight = frame:GetRight()
+            local fTop = frame:GetTop()
+            local fBottom = frame:GetBottom()
+
+            if fLeft and fRight and fTop and fBottom then
+                for _, otherFrame in ipairs(allFrames) do
+                    if otherFrame ~= frame and otherFrame:IsVisible() then
+                        local oLeft = otherFrame:GetLeft()
+                        local oRight = otherFrame:GetRight()
+                        local oTop = otherFrame:GetTop()
+                        local oBottom = otherFrame:GetBottom()
+
+                        if oLeft and oRight and oTop and oBottom then
+                            -- Check if frames are snapped edge-to-edge
+                            -- Bottom of current frame touching top of other frame
+                            if IsNearby(fBottom, oTop, threshold) and
+                               ((fLeft >= oLeft and fLeft <= oRight) or (fRight >= oLeft and fRight <= oRight)) then
+                                relationships[frame] = relationships[frame] or {}
+                                relationships[frame].below = otherFrame
+                            end
+                            -- Top of current frame touching bottom of other frame
+                            if IsNearby(fTop, oBottom, threshold) and
+                               ((fLeft >= oLeft and fLeft <= oRight) or (fRight >= oLeft and fRight <= oRight)) then
+                                relationships[frame] = relationships[frame] or {}
+                                relationships[frame].above = otherFrame
+                            end
+                            -- Right of current frame touching left of other frame
+                            if IsNearby(fRight, oLeft, threshold) and
+                               ((fTop <= oTop and fTop >= oBottom) or (fBottom <= oTop and fBottom >= oBottom)) then
+                                relationships[frame] = relationships[frame] or {}
+                                relationships[frame].rightOf = otherFrame
+                            end
+                            -- Left of current frame touching right of other frame
+                            if IsNearby(fLeft, oRight, threshold) and
+                               ((fTop <= oTop and fTop >= oBottom) or (fBottom <= oTop and fBottom >= oBottom)) then
+                                relationships[frame] = relationships[frame] or {}
+                                relationships[frame].leftOf = otherFrame
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return relationships
+end
+
+-- Get all frames in the snap group (recursively find connected frames)
+local function GetSnapGroup(frame, allFrames, threshold)
+    local group = {}
+    local checked = {}
+
+    local function addToGroup(f)
+        if checked[f] or not f:IsVisible() then return end
+        checked[f] = true
+        table.insert(group, f)
+
+        -- Find all frames snapped to this one
+        local relationships = DetectSnapRelationships(allFrames, threshold)
+        if relationships[f] then
+            if relationships[f].above then addToGroup(relationships[f].above) end
+            if relationships[f].below then addToGroup(relationships[f].below) end
+            if relationships[f].leftOf then addToGroup(relationships[f].leftOf) end
+            if relationships[f].rightOf then addToGroup(relationships[f].rightOf) end
+        end
+    end
+
+    addToGroup(frame)
+    return group
+end
+
+local function SnapFrameToOthers(draggedFrame, allFrames, threshold)
+    if not draggedFrame or not draggedFrame:IsVisible() then return end
+
+    local dragLeft = draggedFrame:GetLeft()
+    local dragRight = draggedFrame:GetRight()
+    local dragTop = draggedFrame:GetTop()
+    local dragBottom = draggedFrame:GetBottom()
+
+    if not dragLeft or not dragRight or not dragTop or not dragBottom then return end
+
+    local snapX, snapY = nil, nil
+
+    -- Check against all other frames
+    for _, otherFrame in ipairs(allFrames) do
+        if otherFrame ~= draggedFrame and otherFrame:IsVisible() then
+            local otherLeft = otherFrame:GetLeft()
+            local otherRight = otherFrame:GetRight()
+            local otherTop = otherFrame:GetTop()
+            local otherBottom = otherFrame:GetBottom()
+
+            if otherLeft and otherRight and otherTop and otherBottom then
+                -- Check horizontal alignment (left-to-left, right-to-right, left-to-right, right-to-left)
+                if IsNearby(dragLeft, otherLeft, threshold) then snapX = otherLeft end
+                if IsNearby(dragRight, otherRight, threshold) then snapX = otherRight - draggedFrame:GetWidth() end
+                if IsNearby(dragLeft, otherRight, threshold) then snapX = otherRight end
+                if IsNearby(dragRight, otherLeft, threshold) then snapX = otherLeft - draggedFrame:GetWidth() end
+
+                -- Check vertical alignment (top-to-top, bottom-to-bottom, top-to-bottom, bottom-to-top)
+                if IsNearby(dragTop, otherTop, threshold) then snapY = otherTop end
+                if IsNearby(dragBottom, otherBottom, threshold) then snapY = otherBottom + draggedFrame:GetHeight() end
+                if IsNearby(dragTop, otherBottom, threshold) then snapY = otherBottom end
+                if IsNearby(dragBottom, otherTop, threshold) then snapY = otherTop + draggedFrame:GetHeight() end
+            end
+        end
+    end
+
+    -- Apply snap if found
+    if snapX or snapY then
+        local currentX, currentY = draggedFrame:GetCenter()
+        if not currentX or not currentY then return end
+
+        local screenCenterX = GetScreenWidth() / 2
+        local screenCenterY = GetScreenHeight() / 2
+
+        if snapX then
+            currentX = snapX + (draggedFrame:GetWidth() / 2)
+        end
+        if snapY then
+            currentY = snapY - (draggedFrame:GetHeight() / 2)
+        end
+
+        draggedFrame:ClearAllPoints()
+        draggedFrame:SetPoint("CENTER", UIParent, "CENTER", currentX - screenCenterX, currentY - screenCenterY)
+    end
+end
+
+-- Adjust positions of snapped frames when a frame's height changes
+local function AdjustSnappedFrames(changedFrame, allFrames, threshold)
+    if not changedFrame or not changedFrame:IsVisible() then return end
+
+    local relationships = DetectSnapRelationships(allFrames, threshold)
+
+    -- Find frames that are snapped below this frame
+    for frame, rels in pairs(relationships) do
+        if rels.above == changedFrame then
+            -- This frame is below the changed frame, adjust its position
+            local changedBottom = changedFrame:GetBottom()
+            if changedBottom then
+                local frameTop = frame:GetTop()
+                local frameHeight = frame:GetHeight()
+
+                if frameTop and frameHeight then
+                    -- Calculate new Y position to maintain the snap
+                    local screenCenterX = GetScreenWidth() / 2
+                    local screenCenterY = GetScreenHeight() / 2
+
+                    local frameX = frame:GetCenter()
+                    local newFrameY = changedBottom - (frameHeight / 2)
+
+                    frame:ClearAllPoints()
+                    frame:SetPoint("CENTER", UIParent, "CENTER", frameX - screenCenterX, newFrameY - screenCenterY)
+
+                    -- Save the new position
+                    if frame.category and IchaTauntDB and IchaTauntDB.categories then
+                        IchaTauntDB.categories[frame.category].position.x = frameX - screenCenterX
+                        IchaTauntDB.categories[frame.category].position.y = newFrameY - screenCenterY
+                    end
+
+                    -- Recursively adjust frames below this one
+                    AdjustSnappedFrames(frame, allFrames, threshold)
+                end
+            end
+        end
+    end
+end
+
+-- UI Creation - Individual Category Frame
+function IchaTaunt:CreateCategoryFrame(category)
     local theme = self:GetTheme()
     local t = theme.tracker
 
-    local f = CreateFrame("Frame", "IchaTauntFrame", UIParent)
+    local frameName = "IchaTauntFrame_" .. category
+    local f = CreateFrame("Frame", frameName, UIParent)
     f:SetWidth(300)
     f:SetHeight(100)
-    f:SetFrameStrata("MEDIUM")  -- Ensure tracker is visible above background elements
+    f:SetFrameStrata("MEDIUM")
+    f.category = category
 
     -- Apply theme backdrop
     f:SetBackdrop(t.backdrop)
     f:SetBackdropColor(unpack(t.bgColor))
     f:SetBackdropBorderColor(unpack(t.borderColor))
 
-    -- Load position relative to screen center
-    local relativeX = IchaTauntDB.position.x or 0
-    local relativeY = IchaTauntDB.position.y or 0
-    local screenWidth = GetScreenWidth() or 1024
-    local screenHeight = GetScreenHeight() or 768
+    -- Load saved position or use default offset based on category index
+    local catData = IchaTauntDB.categories[category]
+    local relativeX = catData.position.x or 0
+    local relativeY = catData.position.y or 0
 
-    -- More lenient bounds checking - allow more positioning freedom
-    local maxOffsetX = (screenWidth / 2) - 50   -- Allow frame closer to edge
-    local maxOffsetY = (screenHeight / 2) - 25  -- Allow frame closer to edge
-
-    if math.abs(relativeX) > maxOffsetX or math.abs(relativeY) > maxOffsetY then
-        relativeX = 0
-        relativeY = 0
-        IchaTauntDB.position.x = 0
-        IchaTauntDB.position.y = 0
+    -- Default positions if not set (stack them vertically)
+    if relativeX == 0 and relativeY == 0 then
+        local catIndex = 0
+        for i, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+            if cat == category then catIndex = i - 1 break end
+        end
+        relativeY = -catIndex * 120  -- Stack downward
     end
-    
-    -- Set position relative to screen center
+
     f:ClearAllPoints()
     f:SetPoint("CENTER", UIParent, "CENTER", relativeX, relativeY)
-    
-    -- Clean, borderless design - no backdrop
-    
-    -- Make it draggable
+
+    -- Make it draggable with snap
     f:SetMovable(true)
     f:EnableMouse(true)
     f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function() if not IchaTaunt.locked then this:StartMoving() end end)
-    f:SetScript("OnDragStop", function()
-        this:StopMovingOrSizing()
-        
-        -- Save position relative to screen center for consistent loading
-        local frameX, frameY = this:GetCenter()
-        local screenCenterX = GetScreenWidth() / 2
-        local screenCenterY = GetScreenHeight() / 2
-        
-        local relativeX = frameX - screenCenterX
-        local relativeY = frameY - screenCenterY
-        
-        IchaTauntDB.position.x = relativeX
-        IchaTauntDB.position.y = relativeY
-    end)
-    
-    -- Right-click menu for lock/unlock
-    f:SetScript("OnMouseUp", function(button)
-        if button == "RightButton" then
-            IchaTaunt:ToggleLock()
+
+    f:SetScript("OnDragStart", function()
+        if not IchaTaunt.locked then
+            -- Get all frames in the snap group
+            local allFrames = {}
+            if IchaTaunt.categoryFrames then
+                for _, frame in pairs(IchaTaunt.categoryFrames) do
+                    table.insert(allFrames, frame)
+                end
+            end
+
+            local snapGroup = GetSnapGroup(this, allFrames, SNAP_THRESHOLD)
+
+            -- Store initial positions of all frames in the group
+            this.dragStartPositions = {}
+            for _, groupFrame in ipairs(snapGroup) do
+                local gx, gy = groupFrame:GetCenter()
+                if gx and gy then
+                    this.dragStartPositions[groupFrame] = { x = gx, y = gy }
+                end
+            end
+
+            -- Store mouse position at drag start
+            local mouseX, mouseY = GetCursorPosition()
+            local uiScale = UIParent:GetEffectiveScale()
+            this.dragStartMouse = { x = mouseX / uiScale, y = mouseY / uiScale }
+
+            this:StartMoving()
         end
     end)
-    
-    -- Lock icon button (top-right corner)
+
+    f:SetScript("OnDragStop", function()
+        this:StopMovingOrSizing()
+
+        -- Calculate how much this frame moved
+        local allFrames = {}
+        if IchaTaunt.categoryFrames then
+            for _, frame in pairs(IchaTaunt.categoryFrames) do
+                table.insert(allFrames, frame)
+            end
+        end
+
+        if this.dragStartPositions and this.dragStartMouse then
+            -- Get current mouse position
+            local mouseX, mouseY = GetCursorPosition()
+            local uiScale = UIParent:GetEffectiveScale()
+            local currentMouseX = mouseX / uiScale
+            local currentMouseY = mouseY / uiScale
+
+            -- Calculate delta
+            local deltaX = currentMouseX - this.dragStartMouse.x
+            local deltaY = currentMouseY - this.dragStartMouse.y
+
+            -- Move all frames in the snap group by the same delta
+            for groupFrame, startPos in pairs(this.dragStartPositions) do
+                if groupFrame ~= this then  -- Skip the dragged frame (already moved)
+                    local screenCenterX = GetScreenWidth() / 2
+                    local screenCenterY = GetScreenHeight() / 2
+
+                    local newX = startPos.x + deltaX
+                    local newY = startPos.y + deltaY
+
+                    groupFrame:ClearAllPoints()
+                    groupFrame:SetPoint("CENTER", UIParent, "CENTER", newX - screenCenterX, newY - screenCenterY)
+
+                    -- Save position for this frame
+                    if groupFrame.category then
+                        IchaTauntDB.categories[groupFrame.category].position.x = newX - screenCenterX
+                        IchaTauntDB.categories[groupFrame.category].position.y = newY - screenCenterY
+                    end
+                end
+            end
+
+            -- Clean up
+            this.dragStartPositions = nil
+            this.dragStartMouse = nil
+        end
+
+        -- Try to snap to other category frames
+        SnapFrameToOthers(this, allFrames, SNAP_THRESHOLD)
+
+        -- Save position relative to screen center for the dragged frame
+        local frameX, frameY = this:GetCenter()
+        if frameX and frameY then
+            local screenCenterX = GetScreenWidth() / 2
+            local screenCenterY = GetScreenHeight() / 2
+
+            local relX = frameX - screenCenterX
+            local relY = frameY - screenCenterY
+
+            IchaTauntDB.categories[category].position.x = relX
+            IchaTauntDB.categories[category].position.y = relY
+        end
+    end)
+
+    -- Right-click menu removed - use /ichataunt lock/unlock or options menu instead
+    -- f:SetScript("OnMouseUp", function(button)
+    --     if arg1 == "RightButton" then
+    --         IchaTaunt:ToggleLock()
+    --     end
+    -- end)
+
+    -- Lock button
     local lockBtn = CreateFrame("Button", nil, f)
     lockBtn:SetWidth(20)
     lockBtn:SetHeight(20)
     lockBtn:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
     lockBtn:EnableMouse(true)
 
-    -- Lock icon texture (shows lock/unlock state)
     lockBtn.icon = lockBtn:CreateTexture(nil, "ARTWORK")
     lockBtn.icon:SetWidth(16)
     lockBtn.icon:SetHeight(16)
     lockBtn.icon:SetPoint("CENTER", lockBtn, "CENTER", 0, 0)
-    lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")  -- Unlocked key icon
-
-    -- Start hidden (will show on frame mouseover)
+    lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")
     lockBtn:SetAlpha(0)
 
-    -- Highlight texture
     lockBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight")
-    
+
     lockBtn:SetScript("OnClick", function()
         IchaTaunt:ToggleLock()
     end)
-    
+
     lockBtn:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_TOP")
         if IchaTaunt.locked then
-            GameTooltip:SetText("Unlock Tracker")
-            GameTooltip:AddLine("Click to unlock and show background", 1, 1, 1, 1)
+            GameTooltip:SetText("Unlock Trackers")
         else
-            GameTooltip:SetText("Lock Tracker")
-            GameTooltip:AddLine("Click to lock and hide background", 1, 1, 1, 1)
+            GameTooltip:SetText("Lock Trackers")
         end
-        GameTooltip:AddLine("Right-click tracker to toggle", 0.7, 0.7, 0.7, 1)
         GameTooltip:Show()
     end)
 
     lockBtn:SetScript("OnLeave", function()
         GameTooltip:Hide()
-        -- Hide button unless mouse is still over main frame
         if not MouseIsOver(f) then
             this:SetAlpha(0)
         end
@@ -1332,7 +1902,7 @@ function IchaTaunt:CreateUI()
 
     f.lockBtn = lockBtn
 
-    -- Show/hide lock button on frame hover (always hidden unless mousing over)
+    -- Show/hide lock button on frame hover
     f:SetScript("OnEnter", function()
         if this.lockBtn then
             this.lockBtn:SetAlpha(1)
@@ -1340,43 +1910,46 @@ function IchaTaunt:CreateUI()
     end)
 
     f:SetScript("OnLeave", function()
-        if this.lockBtn then
-            -- Only hide if not hovering over lock button itself
-            if not MouseIsOver(this.lockBtn) then
-                this.lockBtn:SetAlpha(0)
-            end
+        if this.lockBtn and not MouseIsOver(this.lockBtn) then
+            this.lockBtn:SetAlpha(0)
         end
     end)
 
-    self.frame = f
+    -- Apply scale
+    local scale = IchaTauntDB.scale or 1.0
+    f:SetScale(scale)
+
+    return f
+end
+
+-- UI Creation - Create All Category Frames
+function IchaTaunt:CreateUI()
+    if self.categoryFrames then return end
+
+    -- Create individual frames for each category
+    self.categoryFrames = {}
     self.taunterBars = {}
     self.updateTimer = 0
 
-    -- Apply saved scale
-    self:ApplyScale()
-    
-    -- Apply lock state (hide backdrop if locked)
-    self:UpdateLockState()
+    for _, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+        local frame = self:CreateCategoryFrame(category)
+        self.categoryFrames[category] = frame
 
-    -- Start update cycle
-    f:SetScript("OnUpdate", function()
-        IchaTaunt:UpdateCooldownBars()
-        -- Update DPS displays if module is available
-        if IchaTaunt_DPS and IchaTaunt_DPS.UpdateDisplays then
-            IchaTaunt_DPS:UpdateDisplays()
-        end
-    end)
-    
-    -- Additional safety check - if frame is way off screen, center it
-    local centerX, centerY = f:GetCenter()
-    if centerX and centerY then
-        if centerX < 100 or centerX > (screenWidth - 100) or centerY < 50 or centerY > (screenHeight - 50) then
-            f:ClearAllPoints()
-            f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-            IchaTauntDB.position.x = 0
-            IchaTauntDB.position.y = 0
-        end
+        -- Add OnUpdate to each frame for cooldown updates
+        frame:SetScript("OnUpdate", function()
+            IchaTaunt:UpdateCooldownBars()
+            -- Update DPS displays if module is available
+            if IchaTaunt_DPS and IchaTaunt_DPS.UpdateDisplays then
+                IchaTaunt_DPS:UpdateDisplays()
+            end
+        end)
     end
+
+    -- Keep backward compatibility - self.frame points to tanks frame
+    self.frame = self.categoryFrames.tanks
+
+    -- Apply lock state to all frames
+    self:UpdateLockState()
 end
 
 -- Creates countdown bars for active taunters
@@ -1391,7 +1964,7 @@ end
 
 function IchaTaunt:RebuildListInternal()
     -- Declare variables at function scope so they're accessible throughout
-    local categoryOrder = {"tanks"}
+    local categoryOrder = IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER or {"tanks"}
     local categorizedTaunters = {}
 
     -- Save existing cooldown states and resist status before rebuilding
@@ -1467,43 +2040,85 @@ function IchaTaunt:RebuildListInternal()
 
     -- Determine growth direction
     local growUpward = IchaTauntDB.growUpward
-    local yOffset
-    if growUpward then
-        yOffset = 5  -- Start from bottom, grow upward
-    else
-        yOffset = -5  -- Start from top, grow downward
-    end
-
-    local globalIndex = 1  -- Global ordering number across all categories
 
     -- Set category order
     if IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER then
         categoryOrder = IchaTaunt_Categories.CATEGORY_ORDER
     end
 
+    local globalIndex = 1  -- Global ordering number across all categories
+
+    -- Populate each category frame separately
     for _, category in ipairs(categoryOrder) do
         local members = categorizedTaunters[category] or {}
+        local categoryFrame = self.categoryFrames and self.categoryFrames[category]
 
-        if table.getn(members) > 0 then
-            -- Create category header
-            yOffset = self:CreateCategoryHeader(category, yOffset, growUpward)
-
-            -- Create bars for members in this category
-            for _, name in ipairs(members) do
-                self:CreateTaunterBar(name, yOffset, globalIndex, growUpward)
-                if growUpward then
-                    yOffset = yOffset + 28  -- Move up for next bar
-                else
-                    yOffset = yOffset - 28  -- Move down for next bar
-                end
-                globalIndex = globalIndex + 1
+        if categoryFrame then
+            -- Reset yOffset for this category frame
+            local yOffset
+            if growUpward then
+                yOffset = 5  -- Start from bottom, grow upward
+            else
+                yOffset = -5  -- Start from top, grow downward
             end
 
-            -- Add spacing between categories
-            if growUpward then
-                yOffset = yOffset + 5
+            if table.getn(members) > 0 then
+                -- Show frame if it has members
+                categoryFrame:Show()
+
+                if growUpward then
+                    -- When growing upward: create members first, then header (so header appears above)
+                    for _, name in ipairs(members) do
+                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame)
+                        yOffset = yOffset + 28  -- Move up for next bar
+                        globalIndex = globalIndex + 1
+                    end
+
+                    -- Create category header AFTER members (appears above them visually)
+                    yOffset = self:CreateCategoryHeader(category, yOffset, growUpward, categoryFrame)
+                else
+                    -- When growing downward: create header first, then members (normal order)
+                    -- Create category header
+                    yOffset = self:CreateCategoryHeader(category, yOffset, growUpward, categoryFrame)
+
+                    -- Create bars for members in this category
+                    for _, name in ipairs(members) do
+                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame)
+                        yOffset = yOffset - 28  -- Move down for next bar
+                        globalIndex = globalIndex + 1
+                    end
+                end
+
+                -- Set frame height based on this category's content
+                -- Height = (number of members * 28) + (header height 20) + padding
+                local categoryHeight = (table.getn(members) * 28) + 20 + 10
+                local oldHeight = categoryFrame:GetHeight()
+                categoryFrame:SetHeight(math.max(35, categoryHeight))
+
+                -- Reposition linked frames if height changed
+                if oldHeight ~= categoryFrame:GetHeight() then
+                    self:RepositionLinkedFrames(categoryFrame)
+                end
             else
-                yOffset = yOffset - 5
+                -- Hide frame if it has no members AND tracker is locked
+                -- Keep visible when unlocked so user can position empty frames
+                if self.locked then
+                    categoryFrame:Hide()
+                else
+                    -- Show empty frame with category name when unlocked (for positioning)
+                    categoryFrame:Show()
+                    local oldHeight = categoryFrame:GetHeight()
+                    categoryFrame:SetHeight(35)
+
+                    -- Reposition linked frames if height changed
+                    if oldHeight ~= categoryFrame:GetHeight() then
+                        self:RepositionLinkedFrames(categoryFrame)
+                    end
+
+                    -- Add a header so user knows which category this is
+                    local yOffset = growUpward and 5 or -5
+                    self:CreateCategoryHeader(category, yOffset, growUpward, categoryFrame)
+                end
             end
         end
     end
@@ -1603,19 +2218,22 @@ function IchaTaunt:RebuildListInternal()
             self.taunterBars[name].resistStatus = resistStatus
         end
     end
-    
-    -- Resize frame based on content (28px per row + 10px padding)
-    -- Calculate total height: number of bars + category headers + spacing
-    local totalBars = globalIndex - 1  -- globalIndex is 1 more than total bars
-    local numCategories = 0
-    for _, category in ipairs(categoryOrder) do
-        local catMembers = categorizedTaunters[category] or {}
-        if table.getn(catMembers) > 0 then
-            numCategories = numCategories + 1
+
+    -- Height is now set per-category frame (no unified frame height needed)
+
+    -- Adjust positions of snapped frames after height changes
+    if self.categoryFrames then
+        local allFrames = {}
+        for _, frame in pairs(self.categoryFrames) do
+            table.insert(allFrames, frame)
+        end
+        -- Adjust each frame to maintain snaps after height changes
+        for _, frame in pairs(self.categoryFrames) do
+            if frame:IsVisible() then
+                AdjustSnappedFrames(frame, allFrames, SNAP_THRESHOLD)
+            end
         end
     end
-    local frameHeight = math.max(35, (totalBars * 28) + (numCategories * 20) + 10)
-    self.frame:SetHeight(frameHeight)
 
     -- Store the current order hash for change detection
     local orderHash = ""
@@ -1642,11 +2260,11 @@ end
 
 -- Create clean taunter row: Order | Name | Icons
 -- Create a category header
-function IchaTaunt:CreateCategoryHeader(category, yOffset, growUpward)
+function IchaTaunt:CreateCategoryHeader(category, yOffset, growUpward, parentFrame)
     local theme = self:GetTheme()
     local t = theme.tracker
 
-    local parent = self.frame
+    local parent = parentFrame or self.frame
     local header = CreateFrame("Frame", nil, parent)
     header:SetWidth(280)
     header:SetHeight(18)
@@ -1682,11 +2300,11 @@ function IchaTaunt:CreateCategoryHeader(category, yOffset, growUpward)
     end
 end
 
-function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward)
+function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward, parentFrame)
     local theme = self:GetTheme()
     local t = theme.tracker
 
-    local parent = self.frame
+    local parent = parentFrame or self.frame
     local bar = CreateFrame("Frame", nil, parent)
     bar:SetWidth(280)
     bar:SetHeight(26)  -- Reduced from 32 to 26 for tighter spacing
@@ -1841,7 +2459,21 @@ end
 
 -- Show/hide the tracker based on settings
 function IchaTaunt:ToggleTracker()
-    if self.frame and self.frame:IsVisible() then
+    local isVisible = false
+
+    if self.categoryFrames then
+        -- Check if any category frame is visible
+        for _, frame in pairs(self.categoryFrames) do
+            if frame and frame:IsVisible() then
+                isVisible = true
+                break
+            end
+        end
+    elseif self.frame then
+        isVisible = self.frame:IsVisible()
+    end
+
+    if isVisible then
         self:HideTracker()
     else
         self:ShowTracker()
@@ -1849,10 +2481,18 @@ function IchaTaunt:ToggleTracker()
 end
 
 function IchaTaunt:ShowTracker()
-    if not self.frame then
+    if not self.categoryFrames and not self.frame then
         self:CreateUI()
     end
-    self.frame:Show()
+
+    if self.categoryFrames then
+        for _, frame in pairs(self.categoryFrames) do
+            if frame then frame:Show() end
+        end
+    elseif self.frame then
+        self.frame:Show()
+    end
+
     self.forceVisible = true  -- Flag to keep tracker visible even without taunters
     self:RefreshRoster()
     if IchaTauntDB.debugMode then
@@ -1861,9 +2501,17 @@ function IchaTaunt:ShowTracker()
 end
 
 function IchaTaunt:HideTracker()
-    if self.frame then
+    if self.categoryFrames then
+        for _, frame in pairs(self.categoryFrames) do
+            if frame then frame:Hide() end
+        end
+        self.forceVisible = false
+        if IchaTauntDB.debugMode then
+            print("IchaTaunt: Tracker hidden")
+        end
+    elseif self.frame then
         self.frame:Hide()
-        self.forceVisible = false  -- Clear force visible flag
+        self.forceVisible = false
         if IchaTauntDB.debugMode then
             print("IchaTaunt: Tracker hidden")
         end
@@ -1875,11 +2523,14 @@ function IchaTaunt:SetLocked(locked)
     self.locked = locked
     IchaTauntDB.locked = locked
     self:UpdateLockState()
-    
+
+    -- Rebuild to update frame visibility based on lock state
+    self:RebuildList()
+
     if locked then
-        print("IchaTaunt: Tracker locked - background hidden")
+        print("IchaTaunt: Tracker locked - background hidden, empty frames hidden")
     else
-        print("IchaTaunt: Tracker unlocked - background visible")
+        print("IchaTaunt: Tracker unlocked - background visible, all frames shown for positioning")
     end
 end
 
@@ -1887,41 +2538,129 @@ function IchaTaunt:ToggleLock()
     self:SetLocked(not self.locked)
 end
 
+-- Reposition frames that are snapped below/above a frame that changed height
+function IchaTaunt:RepositionLinkedFrames(changedFrame)
+    if not changedFrame or not self.categoryFrames then return end
+
+    -- Get all category frames
+    local allFrames = {}
+    for _, frame in pairs(self.categoryFrames) do
+        if frame and frame:IsVisible() then
+            table.insert(allFrames, frame)
+        end
+    end
+
+    -- Find frames that are snapped to the changed frame
+    local SNAP_THRESHOLD = 15
+    local changedX, changedY = changedFrame:GetCenter()
+    if not changedX or not changedY then return end
+
+    local changedHeight = changedFrame:GetHeight()
+    local changedTop = changedY + (changedHeight / 2)
+    local changedBottom = changedY - (changedHeight / 2)
+
+    -- Find frames that are vertically aligned and positioned below this frame
+    for _, otherFrame in ipairs(allFrames) do
+        if otherFrame ~= changedFrame then
+            local otherX, otherY = otherFrame:GetCenter()
+            if otherX and otherY then
+                local otherHeight = otherFrame:GetHeight()
+                local otherTop = otherY + (otherHeight / 2)
+
+                -- Check if horizontally aligned (x positions are close)
+                local xDiff = math.abs(changedX - otherX)
+                if xDiff < SNAP_THRESHOLD then
+                    -- Check if this frame is snapped below the changed frame
+                    local verticalGap = changedBottom - otherTop
+                    if math.abs(verticalGap) < SNAP_THRESHOLD and otherY < changedY then
+                        -- This frame is snapped below - reposition it to maintain the gap
+                        local screenCenterX = GetScreenWidth() / 2
+                        local screenCenterY = GetScreenHeight() / 2
+
+                        local newOtherTop = changedBottom
+                        local newOtherY = newOtherTop - (otherHeight / 2)
+
+                        otherFrame:ClearAllPoints()
+                        otherFrame:SetPoint("CENTER", UIParent, "CENTER", otherX - screenCenterX, newOtherY - screenCenterY)
+
+                        -- Save the new position
+                        if otherFrame.category and IchaTauntDB.categories[otherFrame.category] then
+                            IchaTauntDB.categories[otherFrame.category].position.x = otherX - screenCenterX
+                            IchaTauntDB.categories[otherFrame.category].position.y = newOtherY - screenCenterY
+                        end
+
+                        -- Recursively reposition frames below this one
+                        self:RepositionLinkedFrames(otherFrame)
+                    end
+                end
+            end
+        end
+    end
+end
+
 function IchaTaunt:UpdateLockState()
-    if not self.frame then return end
+    if not self.categoryFrames and not self.frame then return end
 
-    -- Keep mouse enabled always so lock button can appear on mouseover
-    -- Just disable dragging when locked
-    self.frame:EnableMouse(true)
+    local theme = self:GetTheme()
+    local t = theme.tracker
 
-    -- Update backdrop visibility based on lock state
-    if self.locked then
-        -- Hide backdrop when locked
-        self.frame:SetBackdrop(nil)
-    else
-        -- Show backdrop when unlocked
-        local theme = self:GetTheme()
-        local t = theme.tracker
-        self.frame:SetBackdrop(t.backdrop)
-        self.frame:SetBackdropColor(unpack(t.bgColor))
-        self.frame:SetBackdropBorderColor(unpack(t.borderColor))
+    -- Update all category frames
+    if self.categoryFrames then
+        for _, frame in pairs(self.categoryFrames) do
+            if frame then
+                -- Update mouse interaction based on lock state
+                if self.locked then
+                    -- Locked: disable mouse so frame is click-through
+                    frame:EnableMouse(false)
+                    -- Hide backdrop when locked
+                    frame:SetBackdrop(nil)
+                else
+                    -- Unlocked: enable mouse for dragging and positioning
+                    frame:EnableMouse(true)
+                    -- Show backdrop when unlocked
+                    frame:SetBackdrop(t.backdrop)
+                    frame:SetBackdropColor(unpack(t.bgColor))
+                    frame:SetBackdropBorderColor(unpack(t.borderColor))
+                end
+
+                -- Update lock icon appearance (button is always hidden unless mousing over frame)
+                if frame.lockBtn and frame.lockBtn.icon then
+                    if self.locked then
+                        -- Show locked icon (closed lock)
+                        frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_06")
+                    else
+                        -- Show unlocked icon (open lock/key)
+                        frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")
+                    end
+                    -- Always hide by default (will show on frame mouseover)
+                    frame.lockBtn:SetAlpha(0)
+                end
+            end
+        end
+    elseif self.frame then
+        -- Backward compatibility: update single frame
+        if self.locked then
+            self.frame:EnableMouse(false)  -- Click-through when locked
+            self.frame:SetBackdrop(nil)
+        else
+            self.frame:EnableMouse(true)   -- Enable mouse when unlocked
+            self.frame:SetBackdrop(t.backdrop)
+            self.frame:SetBackdropColor(unpack(t.bgColor))
+            self.frame:SetBackdropBorderColor(unpack(t.borderColor))
+        end
+
+        if self.frame.lockBtn and self.frame.lockBtn.icon then
+            if self.locked then
+                self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_06")
+            else
+                self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")
+            end
+            self.frame.lockBtn:SetAlpha(0)
+        end
     end
 
     -- Keep options menu lock/unlock button in sync
     self:RefreshLockUnlockButton()
-
-    -- Update lock icon appearance (button is always hidden unless mousing over frame)
-    if self.frame.lockBtn and self.frame.lockBtn.icon then
-        if self.locked then
-            -- Show locked icon (closed lock)
-            self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_06")  -- Locked/closed
-        else
-            -- Show unlocked icon (open lock/key)
-            self.frame.lockBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Key_03")  -- Unlocked/key
-        end
-        -- Always hide by default (will show on frame mouseover)
-        self.frame.lockBtn:SetAlpha(0)
-    end
 end
 
 -- Debug functions to catch all combat events
@@ -2149,6 +2888,17 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
             self:BroadcastFullConfig()
             self:BroadcastCooldownSnapshots()
         end
+        return
+    end
+
+    -- CLEARALL - Clear all tracked members (sent by any user running /ichataunt clearall)
+    if msg == "CLEARALL" then
+        local taunterCount, categoryCount = self:ClearAllTrackedMembers()
+        DEFAULT_CHAT_FRAME:AddMessage("=== IchaTaunt: Remote Clear Received ===")
+        DEFAULT_CHAT_FRAME:AddMessage("Removed " .. taunterCount .. " players from taunters list")
+        DEFAULT_CHAT_FRAME:AddMessage("Removed " .. categoryCount .. " players from categories")
+        DEFAULT_CHAT_FRAME:AddMessage("Cleared by: " .. sender)
+        DEFAULT_CHAT_FRAME:AddMessage("=== Clear Complete ===")
         return
     end
 
@@ -3516,10 +4266,33 @@ function IchaTaunt:CreateOptionsMenu()
     resetBtn:SetScript("OnClick", function()
         IchaTauntDB.position.x = 0
         IchaTauntDB.position.y = 0
-        if IchaTaunt.frame then
+
+        -- Reset all category positions
+        if IchaTaunt_Categories and IchaTauntDB.categories then
+            for i, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                if IchaTauntDB.categories[category] then
+                    -- Stack categories vertically with 120px spacing
+                    IchaTauntDB.categories[category].position.x = 0
+                    IchaTauntDB.categories[category].position.y = -(i - 1) * 120
+                end
+            end
+        end
+
+        -- Apply reset positions to visible frames
+        if IchaTaunt.categoryFrames then
+            for i, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                local frame = IchaTaunt.categoryFrames[category]
+                if frame then
+                    local catData = IchaTauntDB.categories[category]
+                    frame:ClearAllPoints()
+                    frame:SetPoint("CENTER", UIParent, "CENTER", catData.position.x, catData.position.y)
+                end
+            end
+        elseif IchaTaunt.frame then
             IchaTaunt.frame:ClearAllPoints()
             IchaTaunt.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         end
+        print("IchaTaunt: All category positions reset")
     end)
 
     local lockUnlockBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -3820,12 +4593,16 @@ end
 -- ============================================
 
 function IchaTaunt:ShowCustomSpellsMenu()
+    print("IchaTaunt DEBUG: ShowCustomSpellsMenu called")
     if not self.customSpellsMenu then
+        print("IchaTaunt DEBUG: Creating custom spells menu")
         self:CreateCustomSpellsMenu()
     end
 
+    print("IchaTaunt DEBUG: Refreshing spell lists")
     self:RefreshAvailableSpellsList()
     self:RefreshCustomSpellsList()
+    print("IchaTaunt DEBUG: Showing menu")
     self.customSpellsMenu:Show()
 end
 
@@ -3965,9 +4742,15 @@ function IchaTaunt:CreateCustomSpellsMenu()
     addBtn:SetHeight(26)
     addBtn:SetPoint("TOP", f, "TOP", 0, -180)
     addBtn:SetText("Add >>")
+    addBtn:Show()  -- Explicitly show the button
+    print("IchaTaunt DEBUG: Add button created")
     addBtn:SetScript("OnClick", function()
+        print("IchaTaunt DEBUG: Add button clicked")
         if f.selectedAvailableSpell then
+            print("IchaTaunt DEBUG: Spell selected - " .. tostring(f.selectedAvailableSpell.name))
             IchaTaunt:AddSpellFromPicker(f.selectedAvailableSpell)
+        else
+            print("IchaTaunt DEBUG: No spell selected! Click a spell first.")
         end
     end)
     addBtn:SetScript("OnEnter", function()
@@ -4031,7 +4814,10 @@ end
 
 -- Add spell from the picker UI
 function IchaTaunt:AddSpellFromPicker(spellData)
-    if not spellData then return end
+    if not spellData then
+        print("IchaTaunt DEBUG: No spell selected")
+        return
+    end
 
     local menu = self.customSpellsMenu
     local cooldownOverride = nil
@@ -4044,8 +4830,21 @@ function IchaTaunt:AddSpellFromPicker(spellData)
 
     local cooldown = cooldownOverride or spellData.cooldown
     local class = menu and menu.selectedClass or "WARRIOR"
+    local icon = spellData.icon  -- Get icon from spell data
 
-    self:AddCustomSpell(spellData.name, cooldown, class, spellData.id)
+    if IchaTauntDB.debugMode then
+        print("IchaTaunt DEBUG: Adding spell - Name: " .. tostring(spellData.name) .. ", ID: " .. tostring(spellData.id) .. ", CD: " .. tostring(cooldown) .. ", Class: " .. tostring(class))
+    end
+
+    local success, err = pcall(function()
+        self:AddCustomSpell(spellData.name, cooldown, class, spellData.id, icon)
+    end)
+
+    if not success then
+        print("IchaTaunt ERROR: Failed to add spell - " .. tostring(err))
+        return
+    end
+
     self:RefreshCustomSpellsList()
     self:RefreshAvailableSpellsList()
 
@@ -4057,8 +4856,12 @@ end
 
 -- Refresh the available spells list (left panel)
 function IchaTaunt:RefreshAvailableSpellsList()
+    print("IchaTaunt DEBUG: RefreshAvailableSpellsList called")
     local f = self.customSpellsMenu
-    if not f or not f.leftScrollChild then return end
+    if not f or not f.leftScrollChild then
+        print("IchaTaunt DEBUG: ERROR - Menu or leftScrollChild not found")
+        return
+    end
 
     -- Clear existing rows
     for _, row in ipairs(f.availableSpellRows or {}) do
@@ -4068,6 +4871,7 @@ function IchaTaunt:RefreshAvailableSpellsList()
     f.availableSpellRows = {}
 
     local class = f.selectedClass or "WARRIOR"
+    print("IchaTaunt DEBUG: Refreshing spells for class: " .. class)
 
     -- Safety check for trackable spells database
     if not IchaTaunt_GetTrackableSpells then
@@ -4088,6 +4892,12 @@ function IchaTaunt:RefreshAvailableSpellsList()
     if IchaTauntDB.customSpells then
         for id, _ in pairs(IchaTauntDB.customSpells) do
             trackedIDs[id] = true
+        end
+        if IchaTauntDB.debugMode then
+            print("IchaTaunt DEBUG: Tracked spell IDs:")
+            for id, _ in pairs(trackedIDs) do
+                print("  - ID: " .. tostring(id))
+            end
         end
     end
 
@@ -4154,9 +4964,12 @@ function IchaTaunt:RefreshAvailableSpellsList()
 
         -- Click to select
         local capturedSpell = spell
+        local capturedIsTracked = isTracked  -- Capture the value at creation time
         row:SetScript("OnClick", function()
-            if not isTracked then
+            print("IchaTaunt DEBUG: Clicked spell - " .. tostring(capturedSpell.name) .. ", isTracked: " .. tostring(capturedIsTracked) .. ", ID: " .. tostring(capturedSpell.id))
+            if not capturedIsTracked then
                 f.selectedAvailableSpell = capturedSpell
+                print("IchaTaunt DEBUG: Spell selected successfully")
                 -- Update visual selection
                 for _, r in ipairs(f.availableSpellRows) do
                     if r.selected then
@@ -4173,6 +4986,8 @@ function IchaTaunt:RefreshAvailableSpellsList()
                 if f.cdInput then
                     f.cdInput:SetText("")
                 end
+            else
+                print("IchaTaunt DEBUG: Spell is already tracked, cannot select")
             end
         end)
 
@@ -4476,8 +5291,8 @@ function IchaTaunt:FindSpellIcon(spellName, spellID)
         -- Method 7: Try using GetSpellTexture with spell name directly
         -- (works for some spells on some servers)
         if GetSpellTexture then
-            local directIcon = GetSpellTexture(spellName)
-            if directIcon then
+            local success, directIcon = pcall(GetSpellTexture, spellName)
+            if success and directIcon then
                 return directIcon
             end
         end
@@ -4493,9 +5308,7 @@ function IchaTaunt:FindSpellIcon(spellName, spellID)
             end
 
             -- Try to pick up the spell by name
-            local success = pcall(function()
-                PickupSpellByName(spellName)
-            end)
+            local success, err = pcall(PickupSpellByName, spellName)
 
             if success and CursorHasSpell() then
                 -- Get cursor icon
@@ -4514,9 +5327,23 @@ function IchaTaunt:FindSpellIcon(spellName, spellID)
     return "Interface\\Icons\\INV_Misc_QuestionMark"
 end
 
-function IchaTaunt:AddCustomSpell(name, cooldown, class, spellID)
+function IchaTaunt:AddCustomSpell(name, cooldown, class, spellID, iconOverride)
     if not IchaTauntDB.customSpells then
         IchaTauntDB.customSpells = {}
+    end
+
+    -- Check if spell is already tracked by ID
+    if spellID and IchaTauntDB.customSpells[spellID] then
+        print("IchaTaunt: '" .. name .. "' is already being tracked")
+        return
+    end
+
+    -- Check if spell is already tracked by name (for spells without valid IDs)
+    for id, data in pairs(IchaTauntDB.customSpells) do
+        if data.name == name then
+            print("IchaTaunt: '" .. name .. "' is already being tracked")
+            return
+        end
     end
 
     -- Use provided spell ID if valid, otherwise generate a negative ID
@@ -4533,8 +5360,8 @@ function IchaTaunt:AddCustomSpell(name, cooldown, class, spellID)
         end
     end
 
-    -- Try to get icon using multiple methods
-    local icon = self:FindSpellIcon(name, spellID)
+    -- Use provided icon or try to find it
+    local icon = iconOverride or self:FindSpellIcon(name, spellID)
 
     IchaTauntDB.customSpells[customID] = {
         name = name,
@@ -4548,8 +5375,19 @@ function IchaTaunt:AddCustomSpell(name, cooldown, class, spellID)
 
     print("IchaTaunt: Added custom spell '" .. name .. "' (" .. cooldown .. "s cooldown) for " .. class .. (spellID and (" [ID: " .. spellID .. "]") or ""))
 
+    if IchaTauntDB.debugMode then
+        print("IchaTaunt DEBUG: Spell added to customSpells[" .. customID .. "]")
+        print("IchaTaunt DEBUG: Total custom spells: " .. (IchaTauntDB.customSpells and self:CountTable(IchaTauntDB.customSpells) or 0))
+    end
+
     -- Rebuild tracker to include new spell
     self:RebuildList()
+end
+
+function IchaTaunt:CountTable(t)
+    local count = 0
+    for _ in pairs(t) do count = count + 1 end
+    return count
 end
 
 function IchaTaunt:RemoveCustomSpell(spellID)
@@ -4620,12 +5458,27 @@ function IchaTaunt:RefreshCustomSpellsList()
         -- Class
         local classText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         classText:SetPoint("LEFT", row, "LEFT", 175, 0)
-        local classAbbrev = {WARRIOR = "War", DRUID = "Dru", PALADIN = "Pal", SHAMAN = "Sha"}
+        local classAbbrev = {
+            WARRIOR = "War",
+            DRUID = "Dru",
+            PALADIN = "Pal",
+            SHAMAN = "Sha",
+            HUNTER = "Hun",
+            ROGUE = "Rog",
+            PRIEST = "Pri",
+            MAGE = "Mag",
+            WARLOCK = "Wlk",
+        }
         local classColors = {
             WARRIOR = {0.78, 0.61, 0.43},
             DRUID = {1.0, 0.49, 0.04},
             PALADIN = {0.96, 0.55, 0.73},
             SHAMAN = {0.0, 0.44, 0.87},
+            HUNTER = {0.67, 0.83, 0.45},
+            ROGUE = {1.0, 0.96, 0.41},
+            PRIEST = {1.0, 1.0, 1.0},
+            MAGE = {0.41, 0.8, 0.94},
+            WARLOCK = {0.58, 0.51, 0.79},
         }
         local classKey = spellData.classes and spellData.classes[1] or "ALL"
         classText:SetText(classAbbrev[classKey] or classKey)
@@ -4715,9 +5568,10 @@ end
 SLASH_ICHATAUNT1 = "/ichataunt"
 SLASH_ICHATAUNT2 = "/it"
 SlashCmdList["ICHATAUNT"] = function(msg)
-    msg = strlower(msg or "")
-    
-    if msg == "" then
+    local success, err = pcall(function()
+        msg = strlower(msg or "")
+
+        if msg == "" then
         -- Default /it opens config
         ShowTaunterPopup()
     elseif msg == "config" or msg == "setup" then
@@ -4845,10 +5699,33 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         end
         print("IchaTaunt: Testing ALL " .. count .. " spells for " .. playerName)
     elseif msg == "reset" or msg == "center" then
-        -- Reset position to screen center
+        -- Reset position to screen center for all category frames
         IchaTauntDB.position.x = 0
         IchaTauntDB.position.y = 0
-        if IchaTaunt.frame then
+
+        -- Reset all category positions
+        if IchaTaunt_Categories and IchaTauntDB.categories then
+            for i, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                if IchaTauntDB.categories[category] then
+                    -- Stack categories vertically with 120px spacing
+                    IchaTauntDB.categories[category].position.x = 0
+                    IchaTauntDB.categories[category].position.y = -(i - 1) * 120
+                end
+            end
+        end
+
+        -- Apply reset positions to visible frames
+        if IchaTaunt.categoryFrames then
+            for i, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                local frame = IchaTaunt.categoryFrames[category]
+                if frame then
+                    local catData = IchaTauntDB.categories[category]
+                    frame:ClearAllPoints()
+                    frame:SetPoint("CENTER", UIParent, "CENTER", catData.position.x, catData.position.y)
+                end
+            end
+            print("IchaTaunt: All category positions reset to screen center")
+        elseif IchaTaunt.frame then
             IchaTaunt.frame:ClearAllPoints()
             IchaTaunt.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
             print("IchaTaunt: Position reset to screen center")
@@ -4915,7 +5792,109 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         else
             DEFAULT_CHAT_FRAME:AddMessage("Categories: NOT LOADED")
         end
+
+        -- Show tracked players
+        DEFAULT_CHAT_FRAME:AddMessage("--- Tracked Players ---")
+        if IchaTaunt.taunters then
+            local count = 0
+            for name, _ in pairs(IchaTaunt.taunters) do
+                DEFAULT_CHAT_FRAME:AddMessage("  - " .. name)
+                count = count + 1
+            end
+            if count == 0 then
+                DEFAULT_CHAT_FRAME:AddMessage("  (none in self.taunters)")
+            end
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("  self.taunters is nil!")
+        end
+
+        -- Show category members
+        if IchaTaunt_Categories and IchaTauntDB.categories then
+            for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                DEFAULT_CHAT_FRAME:AddMessage("--- Category: " .. cat .. " ---")
+                if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members then
+                    local count = 0
+                    for name, _ in pairs(IchaTauntDB.categories[cat].members) do
+                        DEFAULT_CHAT_FRAME:AddMessage("  - " .. name)
+                        count = count + 1
+                    end
+                    if count == 0 then
+                        DEFAULT_CHAT_FRAME:AddMessage("  (empty)")
+                    end
+                end
+            end
+        end
+
+        -- Show custom spells
+        DEFAULT_CHAT_FRAME:AddMessage("--- Custom Spells ---")
+        if IchaTauntDB.customSpells then
+            local count = 0
+            for spellID, spellData in pairs(IchaTauntDB.customSpells) do
+                DEFAULT_CHAT_FRAME:AddMessage("  [" .. spellID .. "] " .. spellData.name .. " (" .. spellData.cooldown .. "s CD) - " .. spellData.classes[1])
+                count = count + 1
+            end
+            if count == 0 then
+                DEFAULT_CHAT_FRAME:AddMessage("  (none)")
+            else
+                DEFAULT_CHAT_FRAME:AddMessage("  Total: " .. count .. " custom spells")
+            end
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("  customSpells table is nil!")
+        end
+
+        -- Show TrackableSpells classes
+        DEFAULT_CHAT_FRAME:AddMessage("--- TrackableSpells Database ---")
+        if IchaTaunt_TrackableSpells then
+            for class, spells in pairs(IchaTaunt_TrackableSpells) do
+                local count = 0
+                for _ in pairs(spells) do count = count + 1 end
+                DEFAULT_CHAT_FRAME:AddMessage("  " .. class .. ": " .. count .. " spells")
+            end
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("  NOT LOADED!")
+        end
+
         DEFAULT_CHAT_FRAME:AddMessage("=== End Debug ===")
+    elseif msg == "dumplog" then
+        -- Show instructions for reading log from file
+        DEFAULT_CHAT_FRAME:AddMessage("=== IchaTaunt Debug Log ===")
+        if IchaTauntDB and IchaTauntDB.debugLog then
+            local count = table.getn(IchaTauntDB.debugLog)
+            DEFAULT_CHAT_FRAME:AddMessage("Debug log has " .. count .. " entries.")
+            DEFAULT_CHAT_FRAME:AddMessage("To read the log:")
+            DEFAULT_CHAT_FRAME:AddMessage("1. Type /logout to save the log to disk")
+            DEFAULT_CHAT_FRAME:AddMessage("2. Open this file:")
+            DEFAULT_CHAT_FRAME:AddMessage("   F:\\TurtleWoW\\WTF\\Account\\ORDINARYJOE\\SavedVariables\\ICHATAUNT.lua")
+            DEFAULT_CHAT_FRAME:AddMessage("3. Look for the 'debugLog' section")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("Debug log not initialized. Enable debug mode first with: /ichataunt debugmode")
+        end
+        DEFAULT_CHAT_FRAME:AddMessage("=== End Instructions ===")
+    elseif msg == "clearlog" then
+        -- Clear debug log buffer
+        if IchaTauntDB then
+            IchaTauntDB.debugLog = {}
+            DEFAULT_CHAT_FRAME:AddMessage("Debug log cleared. Use /logout to save changes.")
+        end
+    elseif msg == "clearall" then
+        -- Clear ALL tracked members from taunters and categories
+        DEFAULT_CHAT_FRAME:AddMessage("=== IchaTaunt: Clearing All Tracked Members ===")
+
+        -- Perform the clear
+        local taunterCount, categoryCount = IchaTaunt:ClearAllTrackedMembers()
+
+        DEFAULT_CHAT_FRAME:AddMessage("Removed " .. taunterCount .. " players from taunters list")
+        DEFAULT_CHAT_FRAME:AddMessage("Removed " .. categoryCount .. " players from categories")
+
+        -- Broadcast to other users in raid/party
+        local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
+        if inGroup then
+            IchaTaunt:SendSyncMessage("CLEARALL")
+            DEFAULT_CHAT_FRAME:AddMessage("Broadcast sent to raid/party - all users will clear their lists.")
+        end
+
+        DEFAULT_CHAT_FRAME:AddMessage("All tracked members cleared. Use /logout to save changes.")
+        DEFAULT_CHAT_FRAME:AddMessage("=== Clear Complete ===")
     elseif msg == "checkdb" then
         -- Simple check that always works
         DEFAULT_CHAT_FRAME:AddMessage("Checking databases...")
@@ -4954,6 +5933,97 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         else
             DEFAULT_CHAT_FRAME:AddMessage("taunterUI: NIL (open /it first)")
         end
+    elseif msg == "events" then
+        -- Show registered events
+        print("IchaTaunt: Registered Events Check")
+        print("  Checking if frame is registered for combat events...")
+        print("  Frame exists: " .. tostring(IchaTaunt ~= nil))
+        if IchaTaunt then
+            print("  Frame type: " .. tostring(IchaTaunt:GetObjectType()))
+            print("  IsEventRegistered function exists: " .. tostring(IchaTaunt.IsEventRegistered ~= nil))
+
+            -- Test a few key events
+            local testEvents = {
+                "CHAT_MSG_SPELL_FRIENDLYPLAYER_DAMAGE",
+                "CHAT_MSG_SPELL_PARTY_DAMAGE",
+                "CHAT_MSG_SPELL_FRIENDLYPLAYER_BUFF",
+                "CHAT_MSG_SPELL_PARTY_BUFF",
+            }
+
+            print("  Testing key event registrations:")
+            for _, evt in ipairs(testEvents) do
+                if IchaTaunt.IsEventRegistered and IchaTaunt:IsEventRegistered(evt) then
+                    print("    " .. evt .. ": REGISTERED")
+                else
+                    print("    " .. evt .. ": NOT REGISTERED or can't check")
+                end
+            end
+        end
+        print("  ")
+        print("  Try: /it debugmode then have someone cast a spell")
+        print("  You should see [IchaTaunt Event] messages in chat")
+    elseif msg == "disablebroadcast" or msg == "nobroadcast" or msg == "testmode" then
+        -- Toggle broadcast disable for testing
+        IchaTauntDB.disableBroadcast = not IchaTauntDB.disableBroadcast
+        DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt: Test Mode " .. (IchaTauntDB.disableBroadcast and "ENABLED" or "DISABLED"))
+        if IchaTauntDB.disableBroadcast then
+            DEFAULT_CHAT_FRAME:AddMessage("  Only combat log detection active (for testing)")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("  All detection methods enabled (normal mode)")
+        end
+    elseif msg == "version" or msg == "ver" then
+        print("========================================")
+        print("IchaTaunt VERSION CHECK")
+        print("File Version: 2.0.DEBUG.BANNER.v5")
+        print("If you see this, the new code IS loaded!")
+        print("Unconditional print added to StartCooldownFor")
+        print("========================================")
+    elseif msg == "debugmode" then
+        -- Toggle debug mode for combat log
+        IchaTauntDB.debugMode = not IchaTauntDB.debugMode
+        DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt: Debug Mode " .. (IchaTauntDB.debugMode and "ENABLED" or "DISABLED"))
+    elseif msg == "logcombat" or msg == "combatlog" then
+        -- Toggle logging of all combat events mentioning tracked players
+        IchaTauntDB.logTrackedCombat = not IchaTauntDB.logTrackedCombat
+        DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt: Tracked Combat Logging " .. (IchaTauntDB.logTrackedCombat and "ENABLED" or "DISABLED"))
+        if IchaTauntDB.logTrackedCombat then
+            DEFAULT_CHAT_FRAME:AddMessage("  Will show ALL combat log events for tracked players")
+            DEFAULT_CHAT_FRAME:AddMessage("  Use to diagnose why spells aren't being detected")
+        end
+    elseif msg == "debugall" then
+        -- Toggle super debug mode (shows ALL combat events)
+        IchaTauntDB.debugAllEvents = not IchaTauntDB.debugAllEvents
+        print("IchaTaunt: Debug ALL events " .. (IchaTauntDB.debugAllEvents and "ENABLED" or "DISABLED"))
+        print("  WARNING: This will spam your chat with ALL combat log events!")
+    elseif msg == "testui" then
+        -- Test if the spell menu UI exists
+        if IchaTaunt.customSpellsMenu then
+            print("IchaTaunt DEBUG: Menu exists")
+            print("  Is visible: " .. tostring(IchaTaunt.customSpellsMenu:IsVisible()))
+            print("  selectedClass: " .. tostring(IchaTaunt.customSpellsMenu.selectedClass))
+            print("  selectedAvailableSpell: " .. tostring(IchaTaunt.customSpellsMenu.selectedAvailableSpell))
+            if IchaTaunt.customSpellsMenu.selectedAvailableSpell then
+                print("    Spell name: " .. tostring(IchaTaunt.customSpellsMenu.selectedAvailableSpell.name))
+            end
+        else
+            print("IchaTaunt DEBUG: Menu does not exist - open it first with 'Manage Tracked Spells'")
+        end
+    elseif msg == "testadd" then
+        -- Test adding a Hunter spell directly
+        print("IchaTaunt DEBUG: Testing direct add of Feign Death")
+        IchaTaunt:AddCustomSpell("Feign Death", 30, "HUNTER", 5384, "Interface\\Icons\\Ability_Rogue_FeignDeath")
+    elseif strfind(msg, "^lookup ") then
+        -- Test spell lookup by name
+        local _, _, spellName = strfind(msg, "^lookup (.+)")
+        if spellName then
+            print("Looking up spell: " .. spellName)
+            local spellID, spellData = IchaTaunt_GetSpellByName(spellName)
+            if spellID and spellData then
+                print("  FOUND - ID: " .. spellID .. ", Name: " .. spellData.name .. ", CD: " .. spellData.cooldown .. "s")
+            else
+                print("  NOT FOUND in database")
+            end
+        end
     elseif msg == "help" then
         print("IchaTaunt Commands:")
         print("/it - Open config window")
@@ -4970,6 +6040,10 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         print("/it unlock - Unlock tracker")
         print("/it togglelock - Toggle lock state")
         print("/it debug - Show debug info")
+        print("/it debugmode - Toggle combat log debug messages")
+        print("/it logcombat - Log combat events for tracked players (diagnostic)")
+        print("/it debugall - Toggle ALL combat event spam (use carefully!)")
+        print("/it lookup <spell name> - Test if a spell is in the database")
         print("/it test - Test cooldown on first spell for your class")
         print("/it testresist - Test resist indicator")
         print("/it testtaunt - Test Taunt (Warrior, 10s)")
@@ -4984,6 +6058,11 @@ SlashCmdList["ICHATAUNT"] = function(msg)
         print("/it help - Show this help")
     else
         print("IchaTaunt: Unknown command. Use '/it help' for help.")
+    end
+    end)  -- End of pcall
+
+    if not success then
+        DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt ERROR: " .. tostring(err))
     end
 end
 DEFAULT_CHAT_FRAME:AddMessage("IchaTaunt.lua FULLY LOADED - slash commands registered")

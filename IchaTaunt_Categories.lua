@@ -77,6 +77,11 @@ function IchaTaunt_Categories:AddToCategory(playerName, category)
     -- Also add to the main taunters list (for backward compatibility)
     IchaTauntDB.taunters[playerName] = true
 
+    -- Update runtime copy for combat log detection
+    if IchaTaunt and IchaTaunt.taunters then
+        IchaTaunt.taunters[playerName] = true
+    end
+
     return true
 end
 
@@ -97,6 +102,10 @@ function IchaTaunt_Categories:RemoveFromCategory(playerName, category)
 
     if not inAnyCategory then
         IchaTauntDB.taunters[playerName] = nil
+        -- Update runtime copy for combat log detection
+        if IchaTaunt and IchaTaunt.taunters then
+            IchaTaunt.taunters[playerName] = nil
+        end
         -- Also remove from taunterOrder
         local newOrder = {}
         for _, name in ipairs(IchaTauntDB.taunterOrder or {}) do
