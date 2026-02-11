@@ -699,7 +699,7 @@ function IchaTaunt:HandleCombatMessage(eventType)
 
         -- Look for various taunt spell cast patterns
         if strfind(arg1, "(.+) casts (.+)%.") then
-            _, _, caster, spell = strfind(arg1, "(.+) casts (.+)%.")
+            _, _, caster, spell = strfind(arg1, "(.-) casts (.+)%.")
             if IchaTauntDB and IchaTauntDB.debugMode then
                 self:DebugLog("MATCHED: '(.+) casts (.+)%.' -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
             end
@@ -871,100 +871,26 @@ function IchaTaunt:HandleCombatMessage(eventType)
             -- "Playername roars." (Challenging Roar)
             _, _, caster = strfind(arg1, "(.+) roars")
             spell = "Challenging Roar"
-        elseif strfind(arg1, "(.+) gains (.+)%.$") and not strfind(arg1, " from ") then
+        elseif strfind(arg1, "(.+) gains (.+)%.") and not strfind(arg1, " from ") then
             -- "PlayerName gains SpellName." (without "from" clause - direct buff gain)
             -- This catches defensive cooldowns and self-buffs for OTHER players
-            local playerName, buffName
-            _, _, playerName, buffName = strfind(arg1, "(.+) gains (.+)%.$")
-
-            -- List of trackable buffs that indicate spell usage
-            local trackableBuffs = {
-                ["Challenging Shout"] = true,
-                ["Challenging Roar"] = true,
-                ["Shield Wall"] = true,
-                ["Retaliation"] = true,
-                ["Recklessness"] = true,
-                ["Berserker Rage"] = true,
-                ["Barkskin"] = true,
-                ["Frenzied Regeneration"] = true,
-                ["Enrage"] = true,
-                ["Divine Protection"] = true,
-                ["Divine Shield"] = true,
-                ["Hand of Protection"] = true,
-                ["Hand of Freedom"] = true,
-                ["Ethereal Form"] = true,
-                ["Bloodlust"] = true,
-                ["Feign Death"] = true,
-                ["Rapid Fire"] = true,
-                ["Bestial Wrath"] = true,
-                ["Deterrence"] = true,
-                ["Vanish"] = true,
-                ["Evasion"] = true,
-                ["Sprint"] = true,
-                ["Adrenaline Rush"] = true,
-                ["Blade Flurry"] = true,
-                ["Cold Blood"] = true,
-                ["Preparation"] = true,
-                ["Ice Block"] = true,
-                ["Ice Barrier"] = true,
-                ["Combustion"] = true,
-                ["Arcane Power"] = true,
-                ["Power Infusion"] = true,
-                ["Inner Focus"] = true,
-                ["Vampiric Embrace"] = true,
-            }
-
-            if playerName and buffName and trackableBuffs[buffName] then
-                caster = playerName
-                spell = buffName
-                if IchaTauntDB and IchaTauntDB.debugMode then
-                    self:DebugLog("MATCHED: \"(.+) gains (.+)%.\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
-                end
+            -- Let the database check below filter to only tracked spells
+            _, _, caster, spell = strfind(arg1, "(.-) gains (.+)%.")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.-) gains (.+)%.\" -> caster=" .. tostring(caster) .. ", spell=" .. tostring(spell))
             end
         elseif strfind(arg1, "You gain (.+)%.") then
-            -- Check if it's a self-buff that might indicate spell use
-            local buffName
-            _, _, buffName = strfind(arg1, "You gain (.+)%.")
-            -- Match self-buff names to spells (these trigger on gaining the buff)
-            local selfBuffSpells = {
-                ["Challenging Shout"] = true,
-                ["Challenging Roar"] = true,
-                -- Defensive cooldowns that show as buffs
-                ["Shield Wall"] = true,
-                ["Retaliation"] = true,
-                ["Recklessness"] = true,
-                ["Berserker Rage"] = true,
-                ["Barkskin"] = true,
-                ["Frenzied Regeneration"] = true,
-                ["Enrage"] = true,
-                ["Divine Protection"] = true,
-                ["Divine Shield"] = true,
-                ["Hand of Protection"] = true,
-                ["Hand of Freedom"] = true,
-                ["Ethereal Form"] = true,
-                ["Bloodlust"] = true,
-                ["Feign Death"] = true,
-                ["Rapid Fire"] = true,
-                ["Bestial Wrath"] = true,
-                ["Deterrence"] = true,
-                ["Vanish"] = true,
-                ["Evasion"] = true,
-                ["Sprint"] = true,
-                ["Adrenaline Rush"] = true,
-                ["Blade Flurry"] = true,
-                ["Cold Blood"] = true,
-                ["Preparation"] = true,
-                ["Ice Block"] = true,
-                ["Ice Barrier"] = true,
-                ["Combustion"] = true,
-                ["Arcane Power"] = true,
-                ["Power Infusion"] = true,
-                ["Inner Focus"] = true,
-                ["Vampiric Embrace"] = true,
-            }
-            if buffName and selfBuffSpells[buffName] then
-                caster = UnitName("player")
-                spell = buffName
+            -- "You gain SpellName." - self buff gain
+            -- Let the database check below filter to only tracked spells
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "You gain (.+)%.")
+        elseif strfind(arg1, "(.+) fades from you%.") then
+            -- "SpellName fades from you." - for instant-cast buffs like Blink that don't show "You gain" messages
+            -- Detect the fade and backdate the cooldown start
+            caster = UnitName("player")
+            _, _, spell = strfind(arg1, "(.+) fades from you%.")
+            if IchaTauntDB and IchaTauntDB.debugMode then
+                self:DebugLog("MATCHED: \"(.+) fades from you%.\" -> spell=" .. tostring(spell))
             end
         elseif strfind(arg1, "is afflicted by Challenging Roar") then
             -- "Elder Mottled Boar is afflicted by Challenging Roar."
@@ -996,33 +922,6 @@ function IchaTaunt:HandleCombatMessage(eventType)
                 IchaTaunt.lastMockingBlow = GetTime()
                 caster = UnitName("player")
                 spell = "Mocking Blow"
-            end
-        elseif strfind(arg1, "(.+) gains (.+)%.") and not strfind(arg1, " from ") then
-            -- "Playername gains Evasion." - another player gained a self-buff
-            -- Exclude "gains X from Y" (mana/energy gains)
-            local buffName
-            _, _, caster, buffName = strfind(arg1, "(.+) gains (.+)%.")
-            -- Check if it's a tracked self-buff spell
-            local selfBuffSpells = {
-                ["Challenging Shout"] = true,
-                ["Challenging Roar"] = true,
-                ["Shield Wall"] = true, ["Retaliation"] = true, ["Recklessness"] = true,
-                ["Berserker Rage"] = true, ["Barkskin"] = true, ["Frenzied Regeneration"] = true,
-                ["Enrage"] = true, ["Divine Protection"] = true, ["Divine Shield"] = true,
-                ["Hand of Protection"] = true,
-                ["Hand of Freedom"] = true,
-                ["Ethereal Form"] = true, ["Bloodlust"] = true, ["Feign Death"] = true,
-                ["Rapid Fire"] = true, ["Bestial Wrath"] = true, ["Deterrence"] = true,
-                ["Vanish"] = true, ["Evasion"] = true, ["Sprint"] = true,
-                ["Adrenaline Rush"] = true, ["Blade Flurry"] = true, ["Cold Blood"] = true,
-                ["Preparation"] = true, ["Ice Block"] = true, ["Ice Barrier"] = true,
-                ["Combustion"] = true, ["Arcane Power"] = true, ["Power Infusion"] = true,
-                ["Inner Focus"] = true, ["Vampiric Embrace"] = true,
-            }
-            if buffName and selfBuffSpells[buffName] then
-                spell = buffName
-            else
-                caster = nil -- Not a tracked buff
             end
         end
 
