@@ -24,13 +24,13 @@ function IchaTaunt_Categories:InitializeDB()
     IchaTauntDB.categories = IchaTauntDB.categories or {}
 
     for _, cat in ipairs(self.CATEGORY_ORDER) do
-        IchaTauntDB.categories[cat] = IchaTauntDB.categories[cat] or {
-            enabled = true,
-            members = {},      -- {playerName = true}
-            position = {x = 0, y = 0},
-            linked = true,     -- true = attached to main frame
-            collapsed = false, -- true = header only, no bars
-        }
+        IchaTauntDB.categories[cat] = IchaTauntDB.categories[cat] or {}
+        -- Backfill required fields (SavedVariables may have partial tables from older versions)
+        local c = IchaTauntDB.categories[cat]
+        if c.enabled == nil then c.enabled = true end
+        if not c.members then c.members = {} end
+        if c.linked == nil then c.linked = true end
+        if c.collapsed == nil then c.collapsed = false end
     end
 
     -- Migrate old taunters to "tanks" category if categories are empty
@@ -62,16 +62,28 @@ end
 
 -- Add a player to a category
 function IchaTaunt_Categories:AddToCategory(playerName, category)
-    if not IchaTauntDB.categories[category] then return false end
+    -- Ensure categories exist (e.g. first add before main addon has run full init)
+    if not IchaTauntDB.categories or not IchaTauntDB.categories[category] then
+        if self.InitializeDB then
+            self:InitializeDB()
+        end
+    end
+    if not IchaTauntDB.categories or not IchaTauntDB.categories[category] then return false end
 
-    -- Remove from all other categories first
+    -- Remove from all other categories first (guard against nil members)
     for _, cat in ipairs(self.CATEGORY_ORDER) do
-        if IchaTauntDB.categories[cat].members then
+        if IchaTauntDB.categories[cat] then
+            if not IchaTauntDB.categories[cat].members then
+                IchaTauntDB.categories[cat].members = {}
+            end
             IchaTauntDB.categories[cat].members[playerName] = nil
         end
     end
 
-    -- Add to specified category
+    -- Add to specified category (ensure members table exists)
+    if not IchaTauntDB.categories[category].members then
+        IchaTauntDB.categories[category].members = {}
+    end
     IchaTauntDB.categories[category].members[playerName] = true
 
     -- Also add to the main taunters list (for backward compatibility)

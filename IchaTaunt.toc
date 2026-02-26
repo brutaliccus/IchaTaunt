@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: IchaTaunt
 ## Notes: Raid cooldown tracker with category organization
-## Version: 2.0.0
+## Version: 2.1.0
 ## Author: IchaTaunt Team
 ## SavedVariables: IchaTauntDB
 
