@@ -1,31 +1,51 @@
-# IchaTaunt - Tank Taunt Tracker for Turtle WoW
+# IchaTaunt - Raid Cooldown Tracker for Turtle WoW
 
-A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors taunt cooldowns across your raid, with real-time sync between tanks.
+A raid cooldown tracker for Turtle WoW (1.12 client) that monitors taunt, defensive, and interrupt cooldowns across your raid with category organization and real-time sync.
 
-![Version](https://img.shields.io/badge/version-1.7.3-blue)
+![Version](https://img.shields.io/badge/version-2.1.0-blue)
 ![Client](https://img.shields.io/badge/client-Turtle%20WoW%201.12-green)
 
 ## Features
 
-### Real-Time Taunt Tracking
-- **Visual cooldown bars** with countdown timers for all tracked taunters
-- **Per-player tracking** - see exactly when each tank's taunt is ready
+### Category-Based Tracking (v2.0)
+- **Four role categories** - Tanks, Healers, Interrupters, and Other
+- **Deterministic stacking** - category frames stack vertically as a single unit
+- **Drag to reposition** - grab any frame to move the entire stack
+- **Auto grow/shrink** - adding a player expands the frame and pushes categories below it down; removing pulls them back up
+- **Empty frame positioning** - unlock the tracker to see and position all 4 categories before adding players
+
+### Real-Time Cooldown Tracking
+- **Visual cooldown bars** with countdown timers for all tracked players
+- **Per-player tracking** - see exactly when each player's abilities are ready
 - **Smart time display** - shows `5:30` for long cooldowns, switches to seconds under 1 minute
 - **Resist detection** - automatic "RESIST!" indicator when a taunt fails
-- **Class-colored names** - easily identify tanks at a glance
+- **Class-colored names** - easily identify players at a glance
 
-### Cooldown Sync (NEW in 1.5)
-- **Automatic broadcasting** - when you use a taunt, all raid members with IchaTaunt see your cooldown
-- **Cross-tank visibility** - see when other tanks use Challenging Shout/Roar even from across the raid
-- **PallyPower-style sync** - raid leader can set tank order, syncs to all members
-- **Auto-sync toggle** - enable/disable automatic sync updates
+### Cooldown Sync
+- **Automatic broadcasting** - when you use an ability, all raid members with IchaTaunt see your cooldown
+- **Cross-player visibility** - see cooldowns from anyone in your raid who has the addon
+- **PallyPower-style sync** - raid leader/officers can set player assignments, synced to all members
+- **Cooldown persistence** - cooldowns survive UI reloads via epoch-time tracking
 
 ### DTPS Module (Damage Taken Per Second)
-- **Live damage tracking** - shows real-time DTPS for each tank
+- **Live damage tracking** - shows real-time DTPS for each tracked player
 - **Rolling window calculation** - 3-second window for accurate live feed
-- **Broadcast to raid** - other tanks can see your DTPS
+- **Broadcast to raid** - other players can see your DTPS
 - **Warning thresholds** - color-coded warnings for high damage intake
 - **Toggle on/off** - disable if you don't need this info
+
+### All-Categories Player List (v2.1)
+- **See all assignments at once** - the right panel in `/it` shows all 4 categories with their members
+- **Per-category reordering** - up/down arrows swap players within the same category
+- **Direct removal** - remove button targets the correct category without switching tabs
+- **Colored headers** - each category section is color-coded for quick identification
+
+### Spell Picker
+- **Visual spell picker** - dual-list UI to easily add spells to track
+- **Pre-built spell database** - curated list of trackable spells for all classes
+- **Category organization** - spells grouped by Taunt, Defensive, Interrupt, Mobility, CC, Offensive, Utility
+- **Cooldown override** - adjust cooldowns for talents that reduce them
+- **Cross-class support** - add spells from any class to your tracker
 
 ### Supported Taunt Abilities
 
@@ -39,22 +59,13 @@ A comprehensive taunt tracking addon for Turtle WoW (1.12 client) that monitors 
 | **Shaman** | Earthshaker Slam | 10 sec |
 | **Paladin** | Hand of Reckoning | 10 sec |
 
-*Shaman and Paladin taunts are Turtle WoW custom abilities*
-
-### Display Options
-- **Cooldown Only Mode** - hide spell icons until they're on cooldown for a cleaner look
-
-### Spell Picker (NEW in 1.7)
-- **Visual spell picker** - dual-list UI to easily add spells to track
-- **Pre-built spell database** - curated list of trackable spells for all tank classes
-- **Category organization** - spells grouped by Taunt, Defensive, Interrupt, Mobility, CC, Offensive, Utility
-- **Cooldown override** - adjust cooldowns for talents that reduce them
-- **Cross-class support** - add spells from any tank class to your tracker
+*Shaman and Paladin taunts are Turtle WoW custom abilities. Many more spells (defensives, interrupts, etc.) are available via the spell picker.*
 
 ### User Interface
-- **Two-panel configuration** - left panel shows available tanks, right panel shows your tank order
-- **Click to add/remove** - use `+` and `-` buttons to manage your tank list
-- **Arrow reordering** - use up/down arrows to change tank priority order
+- **Category toggle buttons** - select which category new players are added to
+- **Two-panel configuration** - left panel shows available raid members, right panel shows all tracked players by category
+- **Click to add/remove** - use `+` and `-` buttons to manage your player list
+- **Arrow reordering** - use up/down arrows to change player priority within each category
 - **Multiple themes** - Default WoW, Dark, and ElvUI styles
 - **Scalable UI** - resize from 50% to 200%
 - **Lock/unlock tracker** - lock to make click-through, unlock to reposition
@@ -76,16 +87,19 @@ Interface/AddOns/IchaTaunt/
   IchaTaunt_SpellDB.lua
   IchaTaunt_TrackableSpells.lua
   IchaTaunt_Themes.lua
+  IchaTaunt_Categories.lua
   IchaTaunt_DPS.lua
 ```
 
 ## Quick Start
 
-1. **Join a raid or party** with tanks
+1. **Join a raid or party**
 2. **Open configuration**: Type `/it`
-3. **Add taunters**: Click the `+` button next to each tank you want to track (left panel)
-4. **Arrange order**: Use the up/down arrow buttons to reorder tanks (right panel)
-5. **Close** the window - tracker appears automatically
+3. **Select a category**: Click Tanks, Healers, Interrupters, or Other
+4. **Add players**: Click the `+` button next to each player you want to track (left panel)
+5. **Review assignments**: The right panel shows all 4 categories and their members
+6. **Close** the window - tracker frames appear automatically
+7. **Position**: Use `/it unlock` to drag the stack, `/it lock` when done
 
 ## Slash Commands
 
@@ -93,19 +107,19 @@ Interface/AddOns/IchaTaunt/
 | Command | Description |
 |---------|-------------|
 | `/it` | Open main config window |
-| `/it config` | Open taunter selection |
+| `/it config` | Open player selection |
 | `/it options` | Open theme & scale options |
 | `/it help` | Show all commands |
 
 ### Tracker Control
 | Command | Description |
 |---------|-------------|
-| `/it show` | Show tracker bar |
-| `/it hide` | Hide tracker bar |
+| `/it show` | Show tracker frames |
+| `/it hide` | Hide tracker frames |
 | `/it toggle` | Toggle tracker visibility |
-| `/it reset` | Reset tracker to screen center |
+| `/it reset` | Reset stack to screen center |
 | `/it lock` | Lock tracker (click-through) |
-| `/it unlock` | Unlock tracker |
+| `/it unlock` | Unlock tracker (draggable, shows empty frames) |
 
 ### Appearance
 | Command | Description |
@@ -119,7 +133,6 @@ Interface/AddOns/IchaTaunt/
 | Command | Description |
 |---------|-------------|
 | `/it sync` | Force sync with raid |
-| `/it autosync` | Toggle automatic sync |
 
 ### Testing Commands
 | Command | Description |
@@ -138,9 +151,8 @@ Interface/AddOns/IchaTaunt/
 ### Debug Commands
 | Command | Description |
 |---------|-------------|
-| `/it debug` | Toggle debug mode |
+| `/it debug` | Toggle debug mode (off by default, resets each login) |
 | `/it debugall` | Toggle verbose event logging |
-| `/it dtps` | DTPS module commands |
 
 ## Configuration Options
 
@@ -151,13 +163,13 @@ Interface/AddOns/IchaTaunt/
 - **Show in Raid Only** - Hide tracker when not in a raid
 - **DTPS Display** - Enable/disable damage taken tracking
 - **Cooldown Only Mode** - Hide icons until spell is on cooldown
-- **Custom Spells** - Add your own spells to track
+- **Custom Spells** - Add your own spells to track via the spell picker
 
 ### Sync System
-- **Raid Leader/Assist** can set tank order for the entire raid
-- **Auto-sync** broadcasts changes automatically when enabled
-- **Manual sync** available via `/it sync` or the Sync button
-- **Cooldown sync** automatically shares your taunt usage with raid
+- **Raid Leader/Assist** can set player assignments for the entire raid
+- Changes broadcast automatically when in a group as leader/officer
+- Manual sync available via `/it sync`
+- Cooldown usage automatically shared with raid members
 
 ## Themes
 
@@ -178,17 +190,11 @@ Interface/AddOns/IchaTaunt/
 6. Click `>>` to add the spell to your tracker
 7. Use `<<` or click the X to remove spells
 
-The spell picker shows:
-- **Icon and name** for each spell
-- **Default cooldown**
-- **Category** (Taunt, Defensive, etc.)
-- Already-tracked spells are grayed out
-
 ### Cooldown Override
 If you have talents that reduce cooldown (e.g., Improved Taunt), enter the reduced cooldown in seconds before adding the spell. Leave blank to use the default cooldown.
 
 ### Via File (Advanced)
-Edit `IchaTaunt_Spells.lua` to add new Turtle WoW taunts:
+Edit `IchaTaunt_Spells.lua` to add new spells:
 
 ```lua
 [SPELL_ID] = {
@@ -204,25 +210,25 @@ Edit `IchaTaunt_Spells.lua` to add new Turtle WoW taunts:
 
 ### Tracker won't show
 - Use `/it show` to force display
+- Use `/it unlock` to see empty category frames for positioning
 - Check if "Show in Raid Only" is enabled when in a party
-- Make sure you've added taunters via `/it config`
+- Make sure you've added players via `/it`
 
 ### Cooldowns not detecting
 - Enable debug mode: `/it debug`
-- Use a taunt and check for detection messages
-- Verify the taunter is in your tracked list
+- Use an ability and check for detection messages in chat
+- Verify the player is in your tracked list
 
 ### Sync not working
 - Ensure all raid members have IchaTaunt installed
-- Check that raid leader/assist has set the tank order
+- Check that raid leader/assist has set the assignments
 - Try `/it sync` to force a sync request
 
 ### UI is off-screen
-- Use `/it reset` to center the tracker
+- Use `/it reset` to center the tracker stack
 
-### Long cooldowns showing wrong
-- Cooldowns over 60 seconds show as `M:SS` format (e.g., `9:45`)
-- Under 60 seconds shows just seconds (e.g., `45`)
+### Player shows as tracked but not visible
+- Re-add the player via `/it` - the addon will automatically remove and re-add them to fix ghost entries
 
 ## Technical Details
 
@@ -231,79 +237,61 @@ Edit `IchaTaunt_Spells.lua` to add new Turtle WoW taunts:
 - Parses spell casts and "afflicted by" messages
 - Tracks individual cooldowns per player per spell
 - Broadcasts cooldowns via addon messages
+- Hooks `CastSpellByName` for local player instant detection
 
 ### Sync Protocol
 - Uses `ICHAT` addon message prefix
-- Messages: `ORDER:`, `TAUNTERS:`, `CD:`, `DTPS:`, `REQ`
+- Messages: `ORDER:`, `TAUNTERS:`, `CD:`, `DTPS:`, `REQ`, `CLEARALL`, `ADD:`, `REMOVE:`
 - Requires raid/party channel
 
 ### Saved Variables
 Settings saved in `WTF/Account/.../SavedVariables/IchaTaunt.lua`:
-- Taunter list and order
-- Tracker position and scale
+- Player list and category assignments
+- Stack position and scale
 - Theme selection
 - DTPS configuration
 - Custom spells
-- Display options (cooldown only mode)
+- Display options
 
 ## Version History
 
-### v1.7.3
-- **Fixed GCD broadcast bug** - global cooldowns (< 2s) no longer broadcast as spell cooldowns
-- **Fixed cooldown display** - cooldowns now show immediately when spell is used (added UI refresh)
-- **Added Barkskin (Feral)** - Druid feral-specific barkskin (10 min CD) now in spell picker
+### v2.1.0
+- **All-categories right panel** - see all 4 categories and their members at once in `/it` config
+- **Per-category reordering** - up/down arrows only swap within the same category
+- **Silenced debug/combat log spam** - debug output disabled by default, resets each login
+- **Category reassignment fix** - re-adding a tracked player instantly updates the tracker
 
-### v1.7.2
-- **Improved Options menu** - 2-column layout for better fit and organization
-- **Improved Spell Picker** - cooldown override now prominently placed above Add button
-- **Updated Trackable Spells** - all spells verified from database.turtlecraft.gg
+### v2.0.0
+- **Category system** - organize tracked players into Tanks, Healers, Interrupters, and Other
+- **Deterministic stack positioning** - all category frames stack as a single vertical unit
+- **Drag entire stack** - dragging any frame repositions the whole stack
+- **Auto grow/shrink** - frames expand when players are added and contract when removed
+- **Empty frame visibility** - all 4 category frames visible when unlocked for positioning
+- **Ghost tracking fix** - re-adding an already-tracked player forces a clean remove and re-add
 
-### v1.7.1
-- Added **Upward Growth Option** - tank list can now grow upward instead of downward
-- **Fixed AoE taunt sync bug** - Challenging Shout/Roar cooldowns now only appear on the caster's bar, not all tanks
-- **Fixed cooldown preservation** - tracked cooldowns no longer lost when adding/removing tanks
+### v1.7.x
+- Spell Picker UI with trackable spells database
+- Cooldown Only Mode
+- Custom Spells Editor
+- GCD broadcast fix
+- Barkskin (Feral) added to spell picker
 
-### v1.7.0
-- Added **Spell Picker UI** - visual dual-list interface for adding spells
-- Added **Trackable Spells Database** - curated list of spells with cooldowns for all tank classes
-- **Category grouping** - spells organized by Taunt, Defensive, Interrupt, etc.
-- **Cooldown override** - adjust cooldowns when adding spells (for talents)
-- **Cross-class lookup** - full spell database from database.turtlecraft.gg
-
-### v1.6.0
-- Added **Cooldown Only Mode** - hide icons until they're on cooldown
-- Added **Custom Spells Editor** - add your own spells via in-game UI
-- Custom spells persist in SavedVariables (no file editing needed)
-
-### v1.5.2
-- Options menu now follows selected theme
-- Fixed theme colors for all UI elements
-
-### v1.5.1
-- Fixed cooldown sync broadcasting
-- Smart time display (minutes:seconds for long CDs)
-- Added test commands for all spells
-- Renamed addon to "IchaTaunt"
-
-### v1.5.0
-- Added cooldown sync - broadcasts taunt usage to raid
-- Added DTPS (Damage Taken Per Second) module
-- Added theme system (default, dark, elvui)
-- Added UI scaling (50% - 200%)
-- Added auto-sync toggle
-- Added Convert to Raid button
+### v1.5.x - v1.6.x
+- Cooldown sync broadcasting
+- DTPS module
+- Theme system (default, dark, elvui)
+- UI scaling
+- Options menu theming
+- Smart time display
 
 ### v1.4.x
 - PallyPower-style sync system
-- Button-based tank reordering (up/down arrows)
-- Lock/unlock tracker position
-- Challenging Roar/Shout detection via "afflicted by"
+- Button-based reordering
+- Lock/unlock tracker
+- Challenging Roar/Shout detection
 
 ### v1.0
-- Initial release
-- Basic taunt tracking
-- Cooldown timers
-- Resist detection
+- Initial release with basic taunt tracking
 
 ## Credits
 
