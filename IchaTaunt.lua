@@ -1754,7 +1754,7 @@ function IchaTaunt:RebuildListInternal()
                 if growUpward then
                     -- When growing upward: create members first, then header (so header appears above)
                     for _, name in ipairs(members) do
-                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame)
+                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame, category)
                         yOffset = yOffset + 28  -- Move up for next bar
                         globalIndex = globalIndex + 1
                     end
@@ -1768,7 +1768,7 @@ function IchaTaunt:RebuildListInternal()
 
                     -- Create bars for members in this category
                     for _, name in ipairs(members) do
-                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame)
+                        self:CreateTaunterBar(name, yOffset, globalIndex, growUpward, categoryFrame, category)
                         yOffset = yOffset - 28  -- Move down for next bar
                         globalIndex = globalIndex + 1
                     end
@@ -1962,7 +1962,19 @@ function IchaTaunt:CreateCategoryHeader(category, yOffset, growUpward, parentFra
     end
 end
 
-function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward, parentFrame)
+function IchaTaunt:GetSpellCategory(spellID, playerClass)
+    if not IchaTaunt_TrackableSpells then return nil end
+    local classSpells = IchaTaunt_TrackableSpells[playerClass]
+    if not classSpells then return nil end
+    for _, spell in ipairs(classSpells) do
+        if spell.id == spellID then
+            return spell.category
+        end
+    end
+    return nil
+end
+
+function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward, parentFrame, playerCategory)
     local theme = self:GetTheme()
     local t = theme.tracker
 
@@ -2042,9 +2054,18 @@ function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward, parentF
 
         local iconIndex = 0
         for spellID, spellData in pairs(spells) do
-            local iconFrame = self:CreateSpellIcon(bar, spellID, spellData, iconIndex)
-            bar.cooldownBars[spellID] = iconFrame
-            iconIndex = iconIndex + 1
+            local shouldDisplay = true
+            if playerCategory == "interrupters" then
+                local spellCat = self:GetSpellCategory(spellID, playerClass)
+                if spellCat ~= "Interrupt" then
+                    shouldDisplay = false
+                end
+            end
+            if shouldDisplay then
+                local iconFrame = self:CreateSpellIcon(bar, spellID, spellData, iconIndex)
+                bar.cooldownBars[spellID] = iconFrame
+                iconIndex = iconIndex + 1
+            end
         end
     end
 
@@ -5136,13 +5157,16 @@ function IchaTaunt:RefreshCustomSpellsList()
 
     -- Show message if no custom spells
     if yOffset == 0 then
-        local noSpells = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        noSpells:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -10)
+        local emptyRow = CreateFrame("Frame", nil, scrollChild)
+        emptyRow:SetWidth(240)
+        emptyRow:SetHeight(60)
+        emptyRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+
+        local noSpells = emptyRow:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        noSpells:SetPoint("TOPLEFT", emptyRow, "TOPLEFT", 5, -10)
         noSpells:SetText("No custom spells yet.\nSelect from the left panel\nand click >> to add.")
         noSpells:SetTextColor(0.7, 0.7, 0.7)
 
-        local emptyRow = CreateFrame("Frame", nil, scrollChild)
-        emptyRow.text = noSpells
         table.insert(f.trackedSpellRows, emptyRow)
     end
 end
