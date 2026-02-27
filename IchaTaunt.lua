@@ -120,26 +120,14 @@ function IchaTaunt:SetScale(scale)
     if scale > 2.0 then scale = 2.0 end
 
     if self.categoryFrames then
-        -- Scale all category frames and maintain their positions
-        for category, frame in pairs(self.categoryFrames) do
+        for _, frame in pairs(self.categoryFrames) do
             if frame then
-                local catData = IchaTauntDB.categories[category]
-                local savedX = catData.position.x or 0
-                local savedY = catData.position.y or 0
-
                 frame:SetScale(scale)
-                frame:ClearAllPoints()
-                frame:SetPoint("TOP", UIParent, "TOP", savedX, savedY)
             end
         end
+        self:RepositionStack()
     elseif self.frame then
-        -- Backward compatibility: single frame
-        local savedX = IchaTauntDB.position.x or 0
-        local savedY = IchaTauntDB.position.y or 0
-
         self.frame:SetScale(scale)
-        self.frame:ClearAllPoints()
-        self.frame:SetPoint("CENTER", UIParent, "CENTER", savedX, savedY)
     end
 
     IchaTauntDB.scale = scale
@@ -549,6 +537,8 @@ function IchaTaunt:Initialize()
 end
 
 function IchaTaunt:RefreshRoster()
+    if self.userHidden then return end
+
     -- Ensure tracker UI exists before we try to show or rebuild (e.g. when adding first player before tracker was ever shown)
     if not self.categoryFrames and not self.frame then
         self:CreateUI()
@@ -2164,6 +2154,8 @@ function IchaTaunt:ToggleTracker()
 end
 
 function IchaTaunt:ShowTracker()
+    self.userHidden = false
+
     if not self.categoryFrames and not self.frame then
         self:CreateUI()
     end
@@ -2184,20 +2176,19 @@ function IchaTaunt:ShowTracker()
 end
 
 function IchaTaunt:HideTracker()
+    self.userHidden = true
+    self.forceVisible = false
+
     if self.categoryFrames then
         for _, frame in pairs(self.categoryFrames) do
             if frame then frame:Hide() end
         end
-        self.forceVisible = false
-        if IchaTauntDB.debugMode then
-            print("IchaTaunt: Tracker hidden")
-        end
     elseif self.frame then
         self.frame:Hide()
-        self.forceVisible = false
-        if IchaTauntDB.debugMode then
-            print("IchaTaunt: Tracker hidden")
-        end
+    end
+
+    if IchaTauntDB.debugMode then
+        print("IchaTaunt: Tracker hidden")
     end
 end
 
