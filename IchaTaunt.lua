@@ -1629,6 +1629,7 @@ end
 
 -- Creates countdown bars for active taunters
 function IchaTaunt:RebuildList()
+    if self.userHidden then return end
     local success, err = pcall(function()
         self:RebuildListInternal()
     end)
@@ -2629,12 +2630,13 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         end
 
         -- Show/hide based on whether we have taunters
-        if hasTaunters then
-            self.forceVisible = true
-            self.frame:Show()
-        else
-            self.forceVisible = false
-            -- Don't hide immediately - let RefreshRoster decide
+        if not self.userHidden then
+            if hasTaunters then
+                self.forceVisible = true
+                self.frame:Show()
+            else
+                self.forceVisible = false
+            end
         end
 
         -- Force rebuild the tracker list (order changed, must rebuild even if same taunters)
@@ -2693,16 +2695,17 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         end
 
         -- Show/hide based on whether we have taunters
-        if hasTaunters then
-            self.forceVisible = true
-            self.frame:Show()
-        else
-            self.forceVisible = false
-            -- Don't hide immediately - let RefreshRoster decide
-        end
+        if not self.userHidden then
+            if hasTaunters then
+                self.forceVisible = true
+                self.frame:Show()
+            else
+                self.forceVisible = false
+            end
 
-        -- Refresh roster which will rebuild the list
-        self:RefreshRoster()
+            -- Refresh roster which will rebuild the list
+            self:RefreshRoster()
+        end
 
         -- Refresh config window if open
         if self.taunterUI and self.taunterUI:IsVisible() and self.taunterUI.RefreshPanels then
@@ -2756,15 +2759,16 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         -- Update local order reference
         self.order = IchaTauntDB.taunterOrder
 
-        -- Ensure tracker frame exists and is shown
+        -- Ensure tracker frame exists
         if not self.frame then
             self:CreateUI()
         end
-        self.forceVisible = true
-        self.frame:Show()
 
-        -- Refresh roster which will rebuild the list
-        self:RefreshRoster()
+        if not self.userHidden then
+            self.forceVisible = true
+            self.frame:Show()
+            self:RefreshRoster()
+        end
 
         -- Refresh config window if open
         if self.taunterUI and self.taunterUI:IsVisible() and self.taunterUI.RefreshPanels then
@@ -2925,15 +2929,16 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         IchaTauntDB.taunterOrder = newOrder
         self.order = newOrder
 
-        -- Ensure tracker frame exists and is shown
+        -- Ensure tracker frame exists
         if not self.frame then
             self:CreateUI()
         end
-        self.forceVisible = true
-        self.frame:Show()
 
-        -- Refresh roster which will rebuild the list
-        self:RefreshRoster()
+        if not self.userHidden then
+            self.forceVisible = true
+            self.frame:Show()
+            self:RefreshRoster()
+        end
 
         -- Refresh config window if open
         if self.taunterUI and self.taunterUI:IsVisible() and self.taunterUI.RefreshPanels then
