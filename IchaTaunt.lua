@@ -44,6 +44,7 @@ IchaTauntDB = IchaTauntDB or {
     cooldownOnlyMode = false, -- hide icons until they're on cooldown
     customSpells = {}, -- user-defined custom spells to track
     growUpward = false, -- false = list grows downward (default), true = list grows upward
+    trackerHidden = false, -- true = user hid tracker with /it hide (persists across login)
 }
 
 -- Theme data is loaded from IchaTaunt_Themes.lua
@@ -203,6 +204,7 @@ IchaTaunt:RegisterEvent("CHAT_MSG_SPELL_CREATURE_VS_CREATURE_BUFF") -- Creature 
 IchaTaunt:RegisterEvent("RAID_ROSTER_UPDATE")
 IchaTaunt:RegisterEvent("PARTY_MEMBERS_CHANGED")
 IchaTaunt:RegisterEvent("CHAT_MSG_ADDON")
+IchaTaunt:RegisterEvent("UNIT_HEALTH")
 
 IchaTaunt:SetScript("OnEvent", function()
     -- Debug: Show ALL events when debugMode is enabled (except spam combat log events)
@@ -292,6 +294,11 @@ IchaTaunt:SetScript("OnEvent", function()
                 IchaTaunt:ParseSyncMessage(arg2, arg4)
             end
         end
+    elseif event == "UNIT_HEALTH" then
+        -- arg1 = unit that had health change; update low-HP indicator for tracked tanks
+        if arg1 then
+            IchaTaunt:UpdateLowHPIndicator(arg1)
+        end
     end
 end)
 
@@ -325,6 +332,9 @@ function IchaTaunt:Initialize()
     end
     if not IchaTauntDB.cooldownEndTimes then
         IchaTauntDB.cooldownEndTimes = {}
+    end
+    if IchaTauntDB.trackerHidden == nil then
+        IchaTauntDB.trackerHidden = false
     end
     if IchaTauntDB.autoSync == nil then
         IchaTauntDB.autoSync = true -- Auto-sync enabled by default
@@ -395,8 +405,13 @@ function IchaTaunt:Initialize()
 
     self:CreateUI()
 
-    -- Debug: Show what we have on login
-    if IchaTauntDB.taunterOrder then
+    -- Restore persisted hide state (user ran /it hide before logging out)
+    if IchaTauntDB.trackerHidden then
+        self.userHidden = true
+    end
+
+    -- Debug: Show what we have on login (unless user hid with /it hide)
+    if not self.userHidden and IchaTauntDB.taunterOrder then
         local count = 0
         for _ in pairs(IchaTauntDB.taunterOrder) do
             count = count + 1
@@ -408,6 +423,15 @@ function IchaTaunt:Initialize()
             if self.frame then
                 self.frame:Show()
             end
+        end
+    elseif self.userHidden then
+        -- User hid tracker; keep it hidden
+        if self.categoryFrames then
+            for _, frame in pairs(self.categoryFrames) do
+                if frame then frame:Hide() end
+            end
+        elseif self.frame then
+            self.frame:Hide()
         end
     end
 
@@ -1893,6 +1917,19 @@ function IchaTaunt:RebuildListInternal()
     end
     self.lastOrderHash = orderHash
 
+    -- Initial low-HP check for all tracked players (raid/party units)
+    if self.taunterBars then
+        self:UpdateLowHPIndicator("player")
+        for i = 1, 4 do
+            self:UpdateLowHPIndicator("party" .. i)
+        end
+        if GetNumRaidMembers and GetNumRaidMembers() > 0 then
+            for i = 1, 40 do
+                self:UpdateLowHPIndicator("raid" .. i)
+            end
+        end
+    end
+
     -- Re-apply lock state so frames keep correct mouse/backdrop after rebuild
     self:UpdateLockState()
 end
@@ -2061,6 +2098,53 @@ function IchaTaunt:CreateTaunterBar(name, yOffset, orderNum, growUpward, parentF
     end
 
     self.taunterBars[name] = bar
+    bar.playerName = name  -- Store for low-HP lookup
+end
+
+-- Update low-HP indicator: red text + sound when tracked tank is below 30% HP
+-- unit: "player", "party1", "raid1", etc.
+function IchaTaunt:UpdateLowHPIndicator(unit)
+    if not unit or not self.taunterBars then return end
+    local name = UnitName(unit)
+    if not name then return end
+    local bar = self.taunterBars[name]
+    if not bar or not bar.nameText then return end
+
+    local cur, max = 0, 1
+    if UnitHealth and UnitHealthMax then
+        local ok, c, m = pcall(function()
+            return UnitHealth(unit), UnitHealthMax(unit)
+        end)
+        if ok and c and m and m > 0 then
+            cur, max = c, m
+        end
+    end
+
+    local pct = max > 0 and (cur / max) or 1
+    local isLow = pct < 0.3
+
+    if isLow then
+        bar.nameText:SetTextColor(1, 0, 0)  -- Red
+        -- Play sound once when crossing below 30%
+        if not self.lowHPSoundPlayed then self.lowHPSoundPlayed = {} end
+        if not self.lowHPSoundPlayed[name] then
+            self.lowHPSoundPlayed[name] = true
+            if PlaySound then
+                pcall(function() PlaySound("RaidWarning") end)  -- Per wow-api-type-definitions: SoundEffectName
+            end
+        end
+    else
+        -- Restore class color
+        self.lowHPSoundPlayed = self.lowHPSoundPlayed or {}
+        self.lowHPSoundPlayed[name] = nil
+        local playerClass = self:GetPlayerClass(name)
+        if playerClass then
+            local r, g, b = unpack(self:GetClassColor(playerClass))
+            bar.nameText:SetTextColor(r, g, b)
+        else
+            bar.nameText:SetTextColor(1, 1, 1)
+        end
+    end
 end
 
 -- Create spell icon with internal cooldown overlay
@@ -2156,6 +2240,7 @@ end
 
 function IchaTaunt:ShowTracker()
     self.userHidden = false
+    IchaTauntDB.trackerHidden = false
 
     if not self.categoryFrames and not self.frame then
         self:CreateUI()
@@ -2178,6 +2263,7 @@ end
 
 function IchaTaunt:HideTracker()
     self.userHidden = true
+    IchaTauntDB.trackerHidden = true
     self.forceVisible = false
 
     if self.categoryFrames then
@@ -2477,12 +2563,14 @@ function IchaTaunt:SendSyncMessage(msg)
     SendAddonMessage(ICHAT_PREFIX, msg, channel)
 end
 
--- Broadcast full configuration (order + taunters)
+-- Broadcast full configuration (order + taunters + categories)
 function IchaTaunt:BroadcastFullConfig()
     -- Send order
     self:BroadcastOrder()
     -- Send taunters list
     self:BroadcastTaunters()
+    -- Send category assignments so receivers get correct category per player
+    self:BroadcastCategories()
 end
 
 -- Auto-broadcast when changes are made (sync is always on)
@@ -2529,6 +2617,30 @@ function IchaTaunt:BroadcastTaunters()
     self:SendSyncMessage(serialized)
     if IchaTauntDB.debugMode then
         print("[IchaTaunt Sync] Broadcasting taunters: " .. serialized)
+    end
+end
+
+-- Broadcast category assignments (name:category pairs)
+-- Format: CATEGORIES:name1:cat1,name2:cat2,...
+function IchaTaunt:BroadcastCategories()
+    if not IchaTaunt_Categories or not IchaTauntDB.categories then return end
+    local parts = {}
+    for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+        local members = IchaTaunt_Categories:GetCategoryMembers(cat)
+        for name, _ in pairs(members) do
+            if name and name ~= "" then
+                table.insert(parts, name .. ":" .. cat)
+            end
+        end
+    end
+    local serialized = "CATEGORIES:"
+    for i, p in ipairs(parts) do
+        if i > 1 then serialized = serialized .. "," end
+        serialized = serialized .. p
+    end
+    self:SendSyncMessage(serialized)
+    if IchaTauntDB.debugMode then
+        print("[IchaTaunt Sync] Broadcasting categories: " .. serialized)
     end
 end
 
@@ -2717,7 +2829,56 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
         return
     end
 
-    -- ADD:name - Add a taunter (from leader)
+    -- CATEGORIES:name1:cat1,name2:cat2,... - Category assignments (from leader)
+    if strfind(msg, "^CATEGORIES:") then
+        if not self:IsRaidLeader(sender) then
+            if IchaTauntDB.debugMode then
+                print("[IchaTaunt Sync] Ignoring CATEGORIES from non-leader: " .. sender)
+            end
+            return
+        end
+        if self.clearAllTime and (GetTime() - self.clearAllTime) < 10 then return end
+
+        local dataStr = strsub(msg, 12) -- Remove "CATEGORIES:" prefix
+        if not IchaTaunt_Categories or not IchaTauntDB.categories then return end
+
+        -- Clear all category members, then apply from message
+        for _, cat in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+            if IchaTauntDB.categories[cat] and IchaTauntDB.categories[cat].members then
+                IchaTauntDB.categories[cat].members = {}
+            end
+        end
+
+        local pos = 1
+        local len = strlen(dataStr)
+        while pos <= len do
+            local startPos, endPos = strfind(dataStr, "[^,]+", pos)
+            if not startPos then break end
+            local pair = strsub(dataStr, startPos, endPos)
+            pos = endPos + 1
+            if strsub(dataStr, pos, pos) == "," then pos = pos + 1 end
+
+            local colonPos = strfind(pair, ":")
+            if colonPos then
+                local pname = strsub(pair, 1, colonPos - 1)
+                local pcat = strsub(pair, colonPos + 1)
+                if pname and pname ~= "" and pcat and IchaTauntDB.categories[pcat] then
+                    IchaTaunt_Categories:AddToCategory(pname, pcat)
+                end
+            end
+        end
+
+        self:RebuildList()
+        if self.taunterUI and self.taunterUI:IsVisible() and self.taunterUI.RefreshPanels then
+            self.taunterUI.RefreshPanels()
+        end
+        if IchaTauntDB.debugMode then
+            print("[IchaTaunt Sync] Applied categories from " .. sender)
+        end
+        return
+    end
+
+    -- ADD:name or ADD:name:category - Add a taunter (from leader)
     if strfind(msg, "^ADD:") then
         if not self:IsRaidLeader(sender) then return end
 
@@ -2729,7 +2890,22 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
             return
         end
 
-        local name = strsub(msg, 5)
+        local rest = strsub(msg, 5)
+        local name, category = rest, "tanks"
+        local colonPos = strfind(rest, ":")
+        if colonPos then
+            name = strsub(rest, 1, colonPos - 1)
+            category = strsub(rest, colonPos + 1)
+            if not category or category == "" or not (IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER) then
+                category = "tanks"
+            else
+                local valid = false
+                for _, c in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
+                    if c == category then valid = true break end
+                end
+                if not valid then category = "tanks" end
+            end
+        end
         if not IchaTauntDB.taunters then IchaTauntDB.taunters = {} end
         if not IchaTauntDB.taunterOrder then IchaTauntDB.taunterOrder = {} end
 
@@ -2747,12 +2923,9 @@ function IchaTaunt:ParseSyncMessage(msg, sender)
             -- Add to order
             table.insert(IchaTauntDB.taunterOrder, name)
 
-            -- Add to category (default to tanks if not already in a category)
+            -- Add to category (use broadcast category, or default tanks)
             if IchaTaunt_Categories then
-                local existingCategory = IchaTaunt_Categories:GetPlayerCategory(name)
-                if not existingCategory then
-                    IchaTaunt_Categories:AddToCategory(name, "tanks")
-                end
+                IchaTaunt_Categories:AddToCategory(name, category)
             end
         end
 
