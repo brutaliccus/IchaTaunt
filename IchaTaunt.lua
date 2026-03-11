@@ -2019,6 +2019,9 @@ function IchaTaunt:RebuildListInternal()
 
     -- Re-apply lock state so frames keep correct mouse/backdrop after rebuild
     self:UpdateLockState()
+
+    -- Apply cooldown-only visibility immediately so icons don't flash on rebuild
+    self:UpdateCooldownBars()
 end
 
 function IchaTaunt:IsPlayerInGroup(name)
