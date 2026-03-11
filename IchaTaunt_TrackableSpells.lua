@@ -145,6 +145,9 @@ IchaTaunt_TrackableSpells = {
         -- Interrupts
         { id = 1766, name = "Kick", icon = "Interface\\Icons\\Ability_Kick", cooldown = 10, category = "Interrupt" },
 
+        -- Utility
+        { id = 1725, name = "Distract", icon = "Interface\\Icons\\Ability_Rogue_Distract", cooldown = 30, category = "Utility" },
+
         -- Defensive
         { id = 1856, name = "Vanish", icon = "Interface\\Icons\\Ability_Vanish", cooldown = 300, category = "Defensive" },
         { id = 5277, name = "Evasion", icon = "Interface\\Icons\\Spell_Shadow_ShadowWard", cooldown = 300, category = "Defensive" },

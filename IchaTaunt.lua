@@ -45,6 +45,12 @@ IchaTauntDB = IchaTauntDB or {
     customSpells = {}, -- user-defined custom spells to track
     growUpward = false, -- false = list grows downward (default), true = list grows upward
     trackerHidden = false, -- true = user hid tracker with /it hide (persists across login)
+    -- Low HP alert (per-user)
+    lowHPEnabled = true,
+    lowHPAlertSound = true,
+    lowHPThreshold = 30, -- 1-50, percent
+    -- Per-category visibility (per-user, hide category for you only)
+    categoryVisible = { tanks = true, healers = true, interrupters = true, other = true },
 }
 
 -- Theme data is loaded from IchaTaunt_Themes.lua
@@ -259,22 +265,26 @@ IchaTaunt:SetScript("OnEvent", function()
     --     DEFAULT_CHAT_FRAME:AddMessage("[IchaTaunt] Unhandled CHAT_MSG event: " .. tostring(event))
     elseif event == "RAID_ROSTER_UPDATE" or event == "PARTY_MEMBERS_CHANGED" then
         IchaTaunt:RefreshRoster()
-        -- Request sync when joining a group
+        -- Request sync when joining a group (throttled to 10s to avoid spam; always on first request)
         if (GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0) and not IchaTaunt:CanControl() then
-            IchaTaunt:RequestSync()
+            local now = GetTime()
+            local last = IchaTaunt.lastRequestSyncTime or 0
+            if last == 0 or (now - last) >= 10 then
+                IchaTaunt.lastRequestSyncTime = now
+                IchaTaunt:RequestSync()
+            end
         end
-        -- Refresh config window if it's open (live feed)
+        -- Refresh config window if it's open - debounce to avoid stutter from frequent roster updates
         if IchaTaunt.taunterUI and IchaTaunt.taunterUI:IsVisible() and IchaTaunt.taunterUI.RefreshPanels then
-            IchaTaunt.taunterUI.RefreshPanels()
-            -- Schedule a delayed refresh to catch API timing issues
-            -- (IsPartyLeader() may not update immediately when party forms)
             if not IchaTaunt.refreshTimer then
                 IchaTaunt.refreshTimer = CreateFrame("Frame")
+                IchaTaunt.refreshTimer.elapsed = 0
+                IchaTaunt.refreshTimer.debounce = 2.0  -- Wait 2s after last roster event before refreshing
             end
             IchaTaunt.refreshTimer.elapsed = 0
             IchaTaunt.refreshTimer:SetScript("OnUpdate", function()
                 this.elapsed = this.elapsed + arg1
-                if this.elapsed >= 0.5 then
+                if this.elapsed >= this.debounce then
                     this:SetScript("OnUpdate", nil)
                     if IchaTaunt.taunterUI and IchaTaunt.taunterUI:IsVisible() and IchaTaunt.taunterUI.RefreshPanels then
                         IchaTaunt.taunterUI.RefreshPanels()
@@ -336,6 +346,18 @@ function IchaTaunt:Initialize()
     if IchaTauntDB.trackerHidden == nil then
         IchaTauntDB.trackerHidden = false
     end
+    if IchaTauntDB.lowHPEnabled == nil then
+        IchaTauntDB.lowHPEnabled = true
+    end
+    if IchaTauntDB.lowHPAlertSound == nil then
+        IchaTauntDB.lowHPAlertSound = true
+    end
+    if IchaTauntDB.lowHPThreshold == nil then
+        IchaTauntDB.lowHPThreshold = 30
+    end
+    if not IchaTauntDB.categoryVisible then
+        IchaTauntDB.categoryVisible = { tanks = true, healers = true, interrupters = true, other = true }
+    end
     if IchaTauntDB.autoSync == nil then
         IchaTauntDB.autoSync = true -- Auto-sync enabled by default
     end
@@ -367,6 +389,7 @@ function IchaTaunt:Initialize()
     self.order = IchaTauntDB.taunterOrder or {}
     self.taunterBars = {}
     self.locked = IchaTauntDB.locked or false
+    self.lastRequestSyncTime = 0
 
     -- Initialize Categories first so IchaTauntDB.categories and category members exist before we build the tracker
     if IchaTaunt_Categories and IchaTaunt_Categories.InitializeDB then
@@ -581,9 +604,17 @@ function IchaTaunt:RefreshRoster()
 
     local function ShowAllFrames()
         if self.categoryFrames then
-            for _, frame in pairs(self.categoryFrames) do
-                if frame then frame:Show() end
+            local cv = IchaTauntDB.categoryVisible or {}
+            for cat, frame in pairs(self.categoryFrames) do
+                if frame then
+                    if cv[cat] ~= false then
+                        frame:Show()
+                    else
+                        frame:Hide()
+                    end
+                end
             end
+            self:RepositionStack()
         elseif self.frame then
             self.frame:Show()
         end
@@ -640,6 +671,18 @@ function IchaTaunt:RefreshRoster()
                 currentOrderHash = currentOrderHash .. i .. ":" .. name .. ";"
             end
             if currentOrderHash ~= self.lastOrderHash then
+                needsRebuild = true
+            end
+        end
+
+        -- Also check if category visibility changed (nil lastCatVisHash = first run, force rebuild)
+        if not needsRebuild and self.categoryFrames then
+            local cv = IchaTauntDB.categoryVisible or {}
+            local cvHash = "cv:"
+            for _, cat in ipairs(IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER or {}) do
+                cvHash = cvHash .. cat .. "=" .. (cv[cat] ~= false and "1" or "0") .. ";"
+            end
+            if not self.lastCatVisHash or cvHash ~= self.lastCatVisHash then
                 needsRebuild = true
             end
         end
@@ -1535,6 +1578,23 @@ function IchaTaunt:GetClassColor(class)
     return colors[class] or {1, 1, 1} -- Default to white
 end
 
+-- Apply category visibility from IchaTauntDB.categoryVisible. Call when user toggles checkboxes.
+function IchaTaunt:ApplyCategoryVisibility()
+    if self.userHidden then return end
+    if not self.categoryFrames then return end
+    local cv = IchaTauntDB.categoryVisible or {}
+    for cat, frame in pairs(self.categoryFrames) do
+        if frame then
+            if cv[cat] ~= false then
+                frame:Show()
+            else
+                frame:Hide()
+            end
+        end
+    end
+    self:RepositionStack()
+end
+
 -- Deterministic stack positioning: places all visible category frames in a
 -- vertical stack anchored at IchaTauntDB.stackPosition. Called after any
 -- height change, drag, or visibility change.
@@ -1630,13 +1690,21 @@ function IchaTaunt:CreateUI()
     for _, category in ipairs(IchaTaunt_Categories.CATEGORY_ORDER) do
         local frame = self:CreateCategoryFrame(category)
         self.categoryFrames[category] = frame
+    end
 
-        -- Add OnUpdate to each frame for cooldown updates
-        frame:SetScript("OnUpdate", function()
-            IchaTaunt:UpdateCooldownBars()
-            -- Update DPS displays if module is available
-            if IchaTaunt_DPS and IchaTaunt_DPS.UpdateDisplays then
-                IchaTaunt_DPS:UpdateDisplays()
+    -- Single shared OnUpdate (throttled to 0.1s) - was 4x per frame, now 10x/sec total
+    if not self.updateFrame then
+        self.updateFrame = CreateFrame("Frame", "IchaTauntUpdateFrame", UIParent)
+        self.updateFrame.elapsed = 0
+        self.updateFrame.interval = 0.1
+        self.updateFrame:SetScript("OnUpdate", function()
+            this.elapsed = this.elapsed + arg1
+            if this.elapsed >= this.interval then
+                this.elapsed = 0
+                IchaTaunt:UpdateCooldownBars()
+                if IchaTaunt_DPS and IchaTaunt_DPS.UpdateDisplays then
+                    IchaTaunt_DPS:UpdateDisplays()
+                end
             end
         end)
     end
@@ -1748,12 +1816,22 @@ function IchaTaunt:RebuildListInternal()
 
     local globalIndex = 1  -- Global ordering number across all categories
 
+    -- Per-user category visibility (hide category for you only)
+    local catVisible = IchaTauntDB.categoryVisible or {}
+    for _, cat in ipairs(IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER or {}) do
+        if catVisible[cat] == nil then catVisible[cat] = true end
+    end
+
     -- Populate each category frame separately
     for _, category in ipairs(categoryOrder) do
         local members = categorizedTaunters[category] or {}
         local categoryFrame = self.categoryFrames and self.categoryFrames[category]
 
         if categoryFrame then
+            -- User hid this category - skip showing it
+            if not catVisible[category] then
+                categoryFrame:Hide()
+            else
             -- Reset yOffset for this category frame
             local yOffset
             if growUpward then
@@ -1807,6 +1885,7 @@ function IchaTaunt:RebuildListInternal()
                     self:CreateCategoryHeader(category, yOffset, growUpward, categoryFrame)
                 end
             end
+            end  -- catVisible[category]
         end
     end
 
@@ -1916,6 +1995,14 @@ function IchaTaunt:RebuildListInternal()
         orderHash = orderHash .. i .. ":" .. name .. ";"
     end
     self.lastOrderHash = orderHash
+
+    -- Store category visibility hash for change detection
+    local cv = IchaTauntDB.categoryVisible or {}
+    local cvHash = "cv:"
+    for _, cat in ipairs(IchaTaunt_Categories and IchaTaunt_Categories.CATEGORY_ORDER or {}) do
+        cvHash = cvHash .. cat .. "=" .. (cv[cat] ~= false and "1" or "0") .. ";"
+    end
+    self.lastCatVisHash = cvHash
 
     -- Initial low-HP check for all tracked players (raid/party units)
     if self.taunterBars then
@@ -2120,17 +2207,36 @@ function IchaTaunt:UpdateLowHPIndicator(unit)
         end
     end
 
+    if not IchaTauntDB.lowHPEnabled then
+        -- Health tracking disabled - restore class color and return
+        self.lowHPSoundPlayed = self.lowHPSoundPlayed or {}
+        self.lowHPSoundPlayed[name] = nil
+        local playerClass = self:GetPlayerClass(name)
+        if playerClass then
+            local r, g, b = unpack(self:GetClassColor(playerClass))
+            bar.nameText:SetTextColor(r, g, b)
+        else
+            bar.nameText:SetTextColor(1, 1, 1)
+        end
+        return
+    end
+
+    local threshold = (IchaTauntDB.lowHPThreshold or 30) / 100
+    if threshold < 0.01 then threshold = 0.01 end
+    if threshold > 0.5 then threshold = 0.5 end
     local pct = max > 0 and (cur / max) or 1
-    local isLow = pct < 0.3
+    local isLow = pct < threshold
 
     if isLow then
         bar.nameText:SetTextColor(1, 0, 0)  -- Red
-        -- Play sound once when crossing below 30%
-        if not self.lowHPSoundPlayed then self.lowHPSoundPlayed = {} end
-        if not self.lowHPSoundPlayed[name] then
-            self.lowHPSoundPlayed[name] = true
-            if PlaySound then
-                pcall(function() PlaySound("RaidWarning") end)  -- Per wow-api-type-definitions: SoundEffectName
+        -- Play sound once when crossing below threshold (if sound enabled)
+        if IchaTauntDB.lowHPAlertSound then
+            if not self.lowHPSoundPlayed then self.lowHPSoundPlayed = {} end
+            if not self.lowHPSoundPlayed[name] then
+                self.lowHPSoundPlayed[name] = true
+                if PlaySound then
+                    pcall(function() PlaySound("RaidWarning") end)
+                end
             end
         end
     else
@@ -2247,8 +2353,11 @@ function IchaTaunt:ShowTracker()
     end
 
     if self.categoryFrames then
-        for _, frame in pairs(self.categoryFrames) do
-            if frame then frame:Show() end
+        local cv = IchaTauntDB.categoryVisible or {}
+        for cat, frame in pairs(self.categoryFrames) do
+            if frame and (cv[cat] ~= false) then
+                frame:Show()
+            end
         end
     elseif self.frame then
         self.frame:Show()
@@ -3901,7 +4010,7 @@ function IchaTaunt:CreateOptionsMenu()
 
     local f = CreateFrame("Frame", "IchaTauntOptionsMenu", UIParent)
     f:SetWidth(400)  -- Wider for 2-column layout
-    f:SetHeight(385) -- Height for 2 columns with DTPS slider and NET mode checkbox
+    f:SetHeight(520) -- Height for Low HP + Category Visibility sections
     f:SetFrameStrata("DIALOG")
     f:SetFrameLevel(10)
 
@@ -4151,6 +4260,115 @@ function IchaTaunt:CreateOptionsMenu()
     growUpwardLabel:SetPoint("LEFT", growUpwardCheck, "RIGHT", 2, 0)
     growUpwardLabel:SetText("Grow list upward")
 
+    -- ===== LOW HP ALERT SECTION (Right Column) =====
+    yOffset = yOffset - 32
+    local lowHPSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    lowHPSection:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    lowHPSection:SetText("Low HP Alert")
+    lowHPSection:SetTextColor(unpack(c.titleColor))
+    f.lowHPSection = lowHPSection
+
+    yOffset = yOffset - 22
+    local lowHPEnabledCheck = CreateFrame("CheckButton", "IchaTauntLowHPEnabledCheck", f, "UICheckButtonTemplate")
+    lowHPEnabledCheck:SetWidth(20)
+    lowHPEnabledCheck:SetHeight(20)
+    lowHPEnabledCheck:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    lowHPEnabledCheck:SetChecked(IchaTauntDB.lowHPEnabled)
+    lowHPEnabledCheck:SetScript("OnClick", function()
+        IchaTauntDB.lowHPEnabled = (this:GetChecked() == 1)
+        IchaTaunt:RebuildList()
+    end)
+    f.lowHPEnabledCheck = lowHPEnabledCheck
+    local lowHPEnabledLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    lowHPEnabledLabel:SetPoint("LEFT", lowHPEnabledCheck, "RIGHT", 2, 0)
+    lowHPEnabledLabel:SetText("Track low HP (red text)")
+
+    yOffset = yOffset - 22
+    local lowHPSoundCheck = CreateFrame("CheckButton", "IchaTauntLowHPSoundCheck", f, "UICheckButtonTemplate")
+    lowHPSoundCheck:SetWidth(20)
+    lowHPSoundCheck:SetHeight(20)
+    lowHPSoundCheck:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    lowHPSoundCheck:SetChecked(IchaTauntDB.lowHPAlertSound)
+    lowHPSoundCheck:SetScript("OnClick", function()
+        IchaTauntDB.lowHPAlertSound = (this:GetChecked() == 1)
+    end)
+    f.lowHPSoundCheck = lowHPSoundCheck
+    local lowHPSoundLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    lowHPSoundLabel:SetPoint("LEFT", lowHPSoundCheck, "RIGHT", 2, 0)
+    lowHPSoundLabel:SetText("Play alert sound")
+
+    yOffset = yOffset - 24
+    local thresholdLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    thresholdLabel:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    thresholdLabel:SetText("Threshold:")
+    f.thresholdLabel = thresholdLabel
+    local thresholdValue = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    thresholdValue:SetPoint("LEFT", thresholdLabel, "RIGHT", 8, 0)
+    thresholdValue:SetText((IchaTauntDB.lowHPThreshold or 30) .. "%")
+    f.thresholdValue = thresholdValue
+    local threshMinus = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    threshMinus:SetWidth(20)
+    threshMinus:SetHeight(20)
+    threshMinus:SetPoint("LEFT", thresholdValue, "RIGHT", 8, 0)
+    threshMinus:SetText("-")
+    threshMinus:SetScript("OnClick", function()
+        local v = IchaTauntDB.lowHPThreshold or 30
+        v = math.max(1, v - 1)
+        IchaTauntDB.lowHPThreshold = v
+        if f.thresholdValue then f.thresholdValue:SetText(v .. "%") end
+        IchaTaunt:RebuildList()
+    end)
+    local threshPlus = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    threshPlus:SetWidth(20)
+    threshPlus:SetHeight(20)
+    threshPlus:SetPoint("LEFT", threshMinus, "RIGHT", 4, 0)
+    threshPlus:SetText("+")
+    threshPlus:SetScript("OnClick", function()
+        local v = IchaTauntDB.lowHPThreshold or 30
+        v = math.min(50, v + 1)
+        IchaTauntDB.lowHPThreshold = v
+        if f.thresholdValue then f.thresholdValue:SetText(v .. "%") end
+        IchaTaunt:RebuildList()
+    end)
+
+    -- ===== CATEGORY VISIBILITY (Right Column) =====
+    yOffset = yOffset - 32
+    local catVisSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    catVisSection:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+    catVisSection:SetText("Show Categories")
+    catVisSection:SetTextColor(unpack(c.titleColor))
+    f.catVisSection = catVisSection
+
+    local catVisOrder = {"tanks", "healers", "interrupters", "other"}
+    local catVisNames = { tanks = "Tanks", healers = "Healers", interrupters = "Interrupts", other = "Other" }
+    f.catVisChecks = {}
+    for i, cat in ipairs(catVisOrder) do
+        local capturedCat = cat  -- Must capture: Lua for-loop var is shared across closures
+        yOffset = yOffset - 22
+        local chk = CreateFrame("CheckButton", "IchaTauntCatVis_" .. cat, f, "UICheckButtonTemplate")
+        chk:SetWidth(20)
+        chk:SetHeight(20)
+        chk:SetPoint("TOPLEFT", f, "TOPLEFT", rightX, yOffset)
+        local cv = IchaTauntDB.categoryVisible or {}
+        chk:SetChecked(cv[cat] ~= false)
+        chk:SetScript("OnClick", function()
+            local checked = (this and this.GetChecked and this:GetChecked() == 1)
+            IchaTauntDB.categoryVisible = IchaTauntDB.categoryVisible or {}
+            IchaTauntDB.categoryVisible[capturedCat] = checked
+            local frame = (IchaTaunt.categoryFrames and IchaTaunt.categoryFrames[capturedCat]) or getglobal("IchaTauntFrame_" .. capturedCat)
+            if frame and frame.Hide and frame.Show then
+                if checked then frame:Show() else frame:Hide() end
+            end
+            IchaTaunt:ApplyCategoryVisibility()
+            IchaTaunt.lastCatVisHash = nil
+            IchaTaunt:RefreshRoster()
+        end)
+        f.catVisChecks[cat] = chk
+        local lbl = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        lbl:SetPoint("LEFT", chk, "RIGHT", 2, 0)
+        lbl:SetText(catVisNames[cat] or cat)
+    end
+
     -- ===== DTPS SECTION (Right Column) =====
     yOffset = yOffset - 32
     local dtpsSection = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -4330,6 +4548,33 @@ function IchaTaunt:RefreshOptionsMenu()
     -- Update "Only show in raid" checkbox
     if f.showInRaidCheck then
         f.showInRaidCheck:SetChecked(IchaTauntDB.showInRaidOnly)
+    end
+
+    -- Update cooldown only / grow upward
+    if f.cdOnlyCheck then
+        f.cdOnlyCheck:SetChecked(IchaTauntDB.cooldownOnlyMode)
+    end
+    if f.growUpwardCheck then
+        f.growUpwardCheck:SetChecked(IchaTauntDB.growUpward)
+    end
+
+    -- Update Low HP options
+    if f.lowHPEnabledCheck then
+        f.lowHPEnabledCheck:SetChecked(IchaTauntDB.lowHPEnabled)
+    end
+    if f.lowHPSoundCheck then
+        f.lowHPSoundCheck:SetChecked(IchaTauntDB.lowHPAlertSound)
+    end
+    if f.thresholdValue then
+        f.thresholdValue:SetText((IchaTauntDB.lowHPThreshold or 30) .. "%")
+    end
+
+    -- Update category visibility checkboxes
+    if f.catVisChecks then
+        local cv = IchaTauntDB.categoryVisible or {}
+        for cat, chk in pairs(f.catVisChecks) do
+            chk:SetChecked(cv[cat] ~= false)
+        end
     end
 
     -- Update DTPS checkbox
